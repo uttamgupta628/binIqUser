@@ -13,34 +13,37 @@ import {
   widthPercentageToDP as wp,
   heightPercentageToDP as hp,
 } from 'react-native-responsive-screen';
-import {maxWorkers} from '../../metro.config';
 import Splash from '../../assets/Splash.svg';
 import City from '../../assets/City.svg';
 
 const SplashScreen = () => {
   const navigation = useNavigation();
-  // useEffect(()=>{
-  //     setTimeout(()=>{
-  //         checkUserLogin();
-  //     }, 3500)
-  // },[])
-  // const checkUserLogin = async () => {
 
-  //     const firstTimeAppOpen = await AsyncStorage.getItem('NEW_USER')
-  //     if(firstTimeAppOpen == null)
-  //     {
-  //         navigation.dispatch(StackActions.push('GettingStarted'));
-  //     }
-  //     else
-  //     {
-  //         navigation.dispatch(StackActions.replace('HomeNavigator'));
-  //     }
-  // }
   useEffect(() => {
-    setTimeout(() => {
-      navigation.navigate('OnBoarding');
-    }, 2500);
+    checkAuthStatus();
   }, []);
+
+  const checkAuthStatus = async () => {
+    try {
+      // Wait for splash to display (2.5s as before)
+      await new Promise(resolve => setTimeout(resolve, 2500));
+
+      const token = await AsyncStorage.getItem('authToken');
+
+      if (token) {
+        // ✅ Already logged in → go straight to Home
+        navigation.replace('HomeNavigataor');
+      } else {
+        // ❌ Not logged in → go to OnBoarding
+        navigation.replace('OnBoarding');
+      }
+    } catch (error) {
+      console.error('Auth check error:', error);
+      // On any error, fall back to OnBoarding
+      navigation.replace('OnBoarding');
+    }
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar translucent={true} backgroundColor={'transparent'} />

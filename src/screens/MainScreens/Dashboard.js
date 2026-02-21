@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Dimensions,
   Pressable,
+  ActivityIndicator,
 } from 'react-native';
 import {Circle} from 'react-native-progress'; // For circular progress
 import {
@@ -15,8 +16,13 @@ import {
 } from 'react-native-responsive-screen';
 import Svg, {Line, Path} from 'react-native-svg'; // For horizontal progress (e.g., Education Level)
 import ProgressBar from '../../Components/ProgressBar';
+import {useNavigation} from '@react-navigation/native';
+import {userAPI} from '../../api/apiService';
 
 const Dashboard = ({percentage = 70}) => {
+  const navigation = useNavigation();
+  const [fullName, setFullName] = useState('');
+  const [loadingUser, setLoadingUser] = useState(true);
   const size = Dimensions.get('window').width * 0.2;
   const strokeWidth = wp(2);
   const center = size / 2;
@@ -33,13 +39,37 @@ const Dashboard = ({percentage = 70}) => {
   const progressLength = circumference * (percentage / 100);
   const strokeDasharray = `${progressLength} ${circumference}`;
 
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const response = await userAPI.getProfile();
+        if (response) {
+          const userData = response.user || response;
+          setFullName(userData.full_name || 'User');
+        }
+      } catch (err) {
+        console.error('Error fetching profile in Dashboard:', err);
+        setFullName('User');
+      } finally {
+        setLoadingUser(false);
+      }
+    };
+
+    fetchProfile();
+  }, []);
+
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <View style={{flex: 1}}>
           <Text style={styles.greeting}>
-            Hello, <Text style={styles.name}>Lee Carter</Text>
+            Hello,{' '}
+            {loadingUser ? (
+              <ActivityIndicator size="small" color="#130160" />
+            ) : (
+              <Text style={styles.name}>{fullName}</Text>
+            )}
           </Text>
           <Text style={styles.subtext}>
             Here's what you've been up to lately!
@@ -208,7 +238,9 @@ const Dashboard = ({percentage = 70}) => {
         </View>
       </View>
       <View style={styles.enrollNowContainer}>
-        <Pressable style={styles.libButton}>
+        <Pressable
+          style={styles.libButton}
+          onPress={() => navigation.navigate('MyLibrary')}>
           <Text style={styles.liBbuttonText}>Access library</Text>
         </Pressable>
       </View>

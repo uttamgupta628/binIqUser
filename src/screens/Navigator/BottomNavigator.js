@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   Dimensions,
   PanResponder,
+  Alert,
+  Linking,
 } from 'react-native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import HomeScreenMain from '../MainScreens/HomeScreenMain';
@@ -13,6 +15,7 @@ import FavouratiesScreen from '../MainScreens/FavouratiesScreen';
 import MyLibrary from '../MainScreens/MyLibrary';
 import UserProfileScreen from '../MainScreens/UserProfileScreen';
 import MapScreen from '../MainScreens/MapScreen';
+import ScanScreen from '../MainScreens/ScanScreen';
 import CameraScan from '../../../assets/CameraScan.svg';
 import Home from '../../../assets/Home.svg';
 import HomeFocused from '../../../assets/HomeFocused.svg';
@@ -172,7 +175,15 @@ const BottomNavigator = () => {
             // {...panResponder.panHandlers}
           >
             {renderButtons(navigation)}
-            <TouchableOpacity onPress={() => navigation.navigate('MapScreen')}>
+            {/* <TouchableOpacity onPress={() => navigation.navigate('MapScreen')}>
+              <View style={styles.scanButton}>
+                <CameraScan size={hp(4.2)} color={'white'} />
+              </View>
+            </TouchableOpacity> */}
+            <TouchableOpacity
+              onPress={() =>
+                navigation.navigate('ScanScreen', {openCamera: true})
+              }>
               <View style={styles.scanButton}>
                 <CameraScan size={hp(4.2)} color={'white'} />
               </View>
@@ -182,7 +193,8 @@ const BottomNavigator = () => {
       )}>
       <Tab.Screen name="HomeScreen" component={HomeScreenMain} />
       <Tab.Screen name="FavouritesScreen" component={FavouratiesScreen} />
-      <Tab.Screen name="MapScreen" component={MapScreen} />
+      {/* <Tab.Screen name="MapScreen" component={MapScreen} /> */}
+      <Tab.Screen name="ScanScreen" component={ScanScreen} />
       <Tab.Screen name="MyLibrary" component={MyLibrary} />
       <Tab.Screen name="UserProfileScreen" component={UserProfileScreen} />
     </Tab.Navigator>

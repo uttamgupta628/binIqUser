@@ -6,7 +6,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Base API URL
-const API_BASE_URL = 'http://10.218.181.216:3001';
+// const API_BASE_URL = 'http://10.45.4.75:3001';
+const API_BASE_URL = 'https://biniq.onrender.com';
 
 // API Configuration
 const API_CONFIG = {
@@ -14,7 +15,7 @@ const API_CONFIG = {
   timeout: 120000,
   headers: {
     'Content-Type': 'application/json',
-    'Accept': 'application/json',
+    Accept: 'application/json',
   },
 };
 
@@ -29,7 +30,7 @@ const getAuthToken = async () => {
 };
 
 // Set authentication token in AsyncStorage
-const setAuthToken = async (token) => {
+const setAuthToken = async token => {
   try {
     await AsyncStorage.setItem('authToken', token);
   } catch (error) {
@@ -59,7 +60,7 @@ const buildHeaders = async (customHeaders = {}) => {
 };
 
 // Handle API response
-const handleResponse = async (response) => {
+const handleResponse = async response => {
   const contentType = response.headers.get('content-type');
 
   let data;
@@ -305,20 +306,23 @@ export const userAPI = {
   deleteAccount: async () => {
     try {
       console.log('🗑️ Fetching user profile to get user_id...');
-      
+
       // Get current user's profile to get their ID
       const profile = await apiService.get(API_ENDPOINTS.users.profile);
       const userId = profile._id;
-      
+
       console.log('🗑️ Deleting account for user:', userId);
-      
+
       // Call your backend endpoint with user_id in body
-      const response = await apiService.delete(API_ENDPOINTS.users.deleteAccount, {
-        user_id: userId
-      });
-      
+      const response = await apiService.delete(
+        API_ENDPOINTS.users.deleteAccount,
+        {
+          user_id: userId,
+        },
+      );
+
       console.log('✅ Delete response:', response);
-      
+
       return response;
     } catch (error) {
       console.error('❌ Delete account error:', error);
@@ -380,7 +384,6 @@ export const categoriesAPI = {
  * Stores API calls
  */
 export const storesAPI = {
-  
   create: data => apiService.post(API_ENDPOINTS.stores.create, data),
 
   getAll: params => apiService.get(API_ENDPOINTS.stores.getAll, params),
@@ -420,7 +423,6 @@ export const storesAPI = {
       longitude,
       radius,
     }),
-    
 };
 
 /**
