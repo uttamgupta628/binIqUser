@@ -14,7 +14,7 @@ const API_CONFIG = {
   timeout: 120000,
   headers: {
     'Content-Type': 'application/json',
-    'Accept': 'application/json',
+    Accept: 'application/json',
   },
 };
 
@@ -29,7 +29,7 @@ const getAuthToken = async () => {
 };
 
 // Set authentication token in AsyncStorage
-const setAuthToken = async (token) => {
+const setAuthToken = async token => {
   try {
     await AsyncStorage.setItem('authToken', token);
   } catch (error) {
@@ -59,7 +59,7 @@ const buildHeaders = async (customHeaders = {}) => {
 };
 
 // Handle API response
-const handleResponse = async (response) => {
+const handleResponse = async response => {
   const contentType = response.headers.get('content-type');
 
   let data;
@@ -305,20 +305,23 @@ export const userAPI = {
   deleteAccount: async () => {
     try {
       console.log('🗑️ Fetching user profile to get user_id...');
-      
+
       // Get current user's profile to get their ID
       const profile = await apiService.get(API_ENDPOINTS.users.profile);
       const userId = profile._id;
-      
+
       console.log('🗑️ Deleting account for user:', userId);
-      
+
       // Call your backend endpoint with user_id in body
-      const response = await apiService.delete(API_ENDPOINTS.users.deleteAccount, {
-        user_id: userId
-      });
-      
+      const response = await apiService.delete(
+        API_ENDPOINTS.users.deleteAccount,
+        {
+          user_id: userId,
+        },
+      );
+
       console.log('✅ Delete response:', response);
-      
+
       return response;
     } catch (error) {
       console.error('❌ Delete account error:', error);
@@ -380,7 +383,6 @@ export const categoriesAPI = {
  * Stores API calls
  */
 export const storesAPI = {
-  
   create: data => apiService.post(API_ENDPOINTS.stores.create, data),
 
   getAll: params => apiService.get(API_ENDPOINTS.stores.getAll, params),
@@ -420,7 +422,6 @@ export const storesAPI = {
       longitude,
       radius,
     }),
-    
 };
 
 /**
