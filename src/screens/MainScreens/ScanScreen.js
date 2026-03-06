@@ -1,331 +1,430 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useState, useRef, useEffect} from 'react';
 import {
   View,
-  StyleSheet,
-  Alert,
-  TouchableOpacity,
   Text,
-  StatusBar,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
   Dimensions,
-  Platform, // ✅ add this
-  PermissionsAndroid, // ✅ add this
+  StatusBar,
+  ActivityIndicator,
+  Animated,
 } from 'react-native';
+import {useNavigation} from '@react-navigation/native';
+import QRCodeScanner from 'react-native-qrcode-scanner';
 import {RNCamera} from 'react-native-camera';
-import {useRoute, useNavigation} from '@react-navigation/native';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import {scanAPI} from '../../api/apiService';
 
 const {width, height} = Dimensions.get('window');
+const SCAN_AREA = width * 0.62;
+const BOTTOM_H = height * 0.35;
+const DARK = 'rgba(0,0,0,0.72)';
+const CORNER_COLOR = '#2CCCA6';
+const CORNER_SIZE = 26;
+const CORNER_W = 3;
 
 const ScanScreen = () => {
-  const route = useRoute();
   const navigation = useNavigation();
-  const openCamera = route.params?.openCamera;
+  const scannerRef = useRef(null);
+  const isProcessing = useRef(false);
 
-  const [hasPermission, setHasPermission] = useState(false);
-  const [scanned, setScanned] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [scanDone, setScanDone] = useState(false);
+  const [scannedValue, setScannedValue] = useState('');
+  const [scansRemaining, setScansRemaining] = useState(null);
   const [torchOn, setTorchOn] = useState(false);
-  const cameraRef = useRef(null);
 
-  // ─── Permission Request ───────────────────────────────────────────────────
+  const scanLineAnim = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
-    if (openCamera) {
-      requestCameraPermission();
-    }
-  }, [openCamera]);
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scanLineAnim, {
+          toValue: 1,
+          duration: 1600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scanLineAnim, {
+          toValue: 0,
+          duration: 1600,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
 
-  const requestCameraPermission = async () => {
+  const scanLineY = scanLineAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, SCAN_AREA - 3],
+  });
+
+  const onSuccess = e => {
+    if (isProcessing.current || scanDone || saving) return;
+    const qrData = e?.data;
+    if (!qrData) return;
+
+    console.log('🔍 Scanned:', qrData);
+    isProcessing.current = true;
+    setScanDone(true);
+    setScannedValue(qrData);
+    saveScan(qrData);
+  };
+
+  const saveScan = async qrData => {
     try {
-      // iOS — react-native-camera handles it automatically via Info.plist
-      if (Platform.OS === 'ios') {
-        setHasPermission(true);
-        return;
-      }
-
-      // Android — manually request via PermissionsAndroid
-      const granted = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.CAMERA,
-        {
-          title: 'Camera Permission',
-          message: 'This app needs access to your camera to scan QR codes.',
-          buttonPositive: 'Allow',
-          buttonNegative: 'Deny',
-        },
+      setSaving(true);
+      const response = await scanAPI.recordScan(
+        qrData,
+        qrData,
+        'Uncategorized',
+        null,
       );
 
-      if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-        setHasPermission(true);
-      } else {
-        setHasPermission(false);
+      if (response?.success) {
+        setScansRemaining(response.scans_remaining);
         Alert.alert(
-          'Permission Denied',
-          'Camera access is required to scan QR codes.',
-          [{text: 'OK', onPress: () => navigation.goBack()}],
+          '✅ Saved!',
+          `Added to library.\nUsed: ${response.total_scans}/100  |  Left: ${response.scans_remaining}`,
+          [
+            {text: 'Scan Again', onPress: resetScanner},
+            {
+              text: 'View Library',
+              onPress: () => navigation.navigate('MyLibrary'),
+            },
+          ],
         );
+      } else if (response?.message?.toLowerCase().includes('limit')) {
+        Alert.alert('⚠️ Limit Reached', 'You have used all 100 scans.', [
+          {text: 'OK', onPress: () => navigation.goBack()},
+        ]);
+      } else {
+        Alert.alert('Failed', response?.message || 'Could not save.', [
+          {text: 'Try Again', onPress: resetScanner},
+        ]);
       }
-    } catch (error) {
-      console.log('Camera permission error:', error);
-      Alert.alert(
-        'Error',
-        'Something went wrong while requesting camera permission.',
-      );
+    } catch (err) {
+      Alert.alert('Error', err?.message || 'Something went wrong.', [
+        {text: 'Try Again', onPress: resetScanner},
+      ]);
+    } finally {
+      setSaving(false);
     }
   };
 
-  // ─── QR Code Scanned Handler ──────────────────────────────────────────────
-  const onQRCodeRead = ({data, type}) => {
-    if (scanned) return; // prevent multiple triggers
-    setScanned(true);
-
-    Alert.alert('✅ QR Code Scanned', `Data: ${data}`, [
-      {
-        text: 'Scan Again',
-        onPress: () => setScanned(false),
-        style: 'cancel',
-      },
-      {
-        text: 'Close Camera',
-        onPress: () => navigation.goBack(),
-      },
-    ]);
+  const resetScanner = () => {
+    isProcessing.current = false;
+    setScanDone(false);
+    setScannedValue('');
+    setSaving(false);
+    scannerRef.current?.reactivate();
   };
 
-  // ─── Camera Overlay UI ────────────────────────────────────────────────────
-  const renderCameraOverlay = () => (
-    <View style={styles.overlayContainer}>
-      {/* Top bar */}
-      <View style={styles.topBar}>
-        <TouchableOpacity
-          style={styles.closeButton}
-          onPress={() => navigation.goBack()}>
-          <Text style={styles.closeText}>✕ Close</Text>
-        </TouchableOpacity>
-        <Text style={styles.topBarTitle}>Scan QR Code</Text>
-        <TouchableOpacity
-          style={styles.torchButton}
-          onPress={() => setTorchOn(prev => !prev)}>
-          <Text style={styles.torchText}>{torchOn ? '🔦 On' : '🔦 Off'}</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Dimmed top area */}
-      <View style={styles.dimmedTop} />
-
-      {/* Middle row: dimmed sides + scan frame */}
-      <View style={styles.middleRow}>
-        <View style={styles.dimmedSide} />
-
-        {/* Scan frame box */}
-        <View style={styles.scanFrame}>
-          {/* Corner borders */}
-          <View style={[styles.corner, styles.topLeft]} />
-          <View style={[styles.corner, styles.topRight]} />
-          <View style={[styles.corner, styles.bottomLeft]} />
-          <View style={[styles.corner, styles.bottomRight]} />
-
-          {/* Scan line animation could be added here */}
-        </View>
-
-        <View style={styles.dimmedSide} />
-      </View>
-
-      {/* Dimmed bottom area */}
-      <View style={styles.dimmedBottom}>
-        <Text style={styles.hintText}>
-          {scanned ? 'Processing...' : 'Align QR code within the frame'}
-        </Text>
-      </View>
-    </View>
-  );
-
-  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#000" />
+      <StatusBar
+        translucent
+        backgroundColor="transparent"
+        barStyle="light-content"
+      />
 
-      {/* ✅ Your existing MapScreen content goes here */}
-      {/* <MapView ... /> etc */}
+      <QRCodeScanner
+        ref={scannerRef}
+        onRead={onSuccess}
+        vibrate={false}
+        reactivate={false}
+        showMarker={false}
+        cameraStyle={styles.camera}
+        containerStyle={styles.scannerContainer}
+        flashMode={
+          torchOn
+            ? RNCamera.Constants.FlashMode.torch
+            : RNCamera.Constants.FlashMode.off
+        }
+        cameraProps={{
+          captureAudio: false,
+          androidCameraPermissionOptions: {
+            title: 'Camera Permission',
+            message: 'BinIQ needs camera to scan products',
+            buttonPositive: 'Allow',
+            buttonNegative: 'Cancel',
+          },
+        }}
+        customMarker={
+          <View style={styles.markerOuter}>
+            {/* Top dark */}
+            <View style={styles.darkTop} />
 
-      {/* ✅ QR Camera Overlay — only shows when openCamera param is true */}
-      {openCamera && hasPermission && (
-        <View style={StyleSheet.absoluteFill}>
-          <RNCamera
-            ref={cameraRef}
-            style={StyleSheet.absoluteFill}
-            type={RNCamera.Constants.Type.back}
-            flashMode={
-              torchOn
-                ? RNCamera.Constants.FlashMode.torch
-                : RNCamera.Constants.FlashMode.off
-            }
-            onBarCodeRead={onQRCodeRead}
-            barCodeTypes={[RNCamera.Constants.BarCodeType.qr]}
-            captureAudio={false}
-            androidCameraPermissionOptions={{
-              title: 'Camera Permission',
-              message: 'App needs access to your camera to scan QR codes.',
-              buttonPositive: 'Allow',
-              buttonNegative: 'Deny',
-            }}>
-            {renderCameraOverlay()}
-          </RNCamera>
-        </View>
-      )}
+            {/* Middle with scan box */}
+            <View style={styles.middleRow}>
+              <View style={styles.darkSide} />
+              <View style={styles.scanBox}>
+                <View style={[styles.corner, styles.cornerTL]} />
+                <View style={[styles.corner, styles.cornerTR]} />
+                <View style={[styles.corner, styles.cornerBL]} />
+                <View style={[styles.corner, styles.cornerBR]} />
 
-      {/* Permission not granted but camera was requested */}
-      {openCamera && !hasPermission && (
-        <View style={styles.permissionContainer}>
-          <Text style={styles.permissionText}>
-            Camera permission is required to scan QR codes.
-          </Text>
-          <TouchableOpacity
-            style={styles.permissionButton}
-            onPress={requestCameraPermission}>
-            <Text style={styles.permissionButtonText}>Grant Permission</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.permissionButton,
-              {backgroundColor: '#999', marginTop: 10},
-            ]}
-            onPress={() => navigation.goBack()}>
-            <Text style={styles.permissionButtonText}>Go Back</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+                {!scanDone && !saving && (
+                  <Animated.View
+                    style={[
+                      styles.scanLine,
+                      {transform: [{translateY: scanLineY}]},
+                    ]}
+                  />
+                )}
+                {saving && (
+                  <View style={styles.centerOverlay}>
+                    <ActivityIndicator size="large" color="#2CCCA6" />
+                    <Text style={styles.savingText}>Saving...</Text>
+                  </View>
+                )}
+                {scanDone && !saving && (
+                  <View style={styles.centerOverlay}>
+                    <MaterialIcons
+                      name="check-circle"
+                      size={52}
+                      color="#2CCCA6"
+                    />
+                  </View>
+                )}
+              </View>
+              <View style={styles.darkSide} />
+            </View>
+
+            {/* Bottom panel */}
+            <View style={styles.darkBottom}>
+              <Text style={styles.instructionText}>
+                {saving
+                  ? 'Saving to your library...'
+                  : scanDone
+                  ? '✅ Scan complete!'
+                  : 'Point camera at a QR code or barcode'}
+              </Text>
+
+              {scannedValue !== '' && !saving && (
+                <View style={styles.scannedValueBox}>
+                  <Text style={styles.scannedLabel}>SCANNED</Text>
+                  <Text style={styles.scannedValue} numberOfLines={2}>
+                    {scannedValue}
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.btnRow}>
+                <TouchableOpacity
+                  style={[styles.iconBtn, torchOn && styles.iconBtnActive]}
+                  onPress={() => setTorchOn(t => !t)}>
+                  <MaterialIcons
+                    name={torchOn ? 'flash-on' : 'flash-off'}
+                    size={20}
+                    color={torchOn ? '#fff' : '#2CCCA6'}
+                  />
+                </TouchableOpacity>
+
+                {scanDone && !saving && (
+                  <TouchableOpacity
+                    style={styles.rescanBtn}
+                    onPress={resetScanner}>
+                    <MaterialIcons
+                      name="qr-code-scanner"
+                      size={18}
+                      color="#fff"
+                    />
+                    <Text style={styles.rescanText}>Scan Again</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  style={styles.libraryBtn}
+                  onPress={() => navigation.navigate('MyLibrary')}>
+                  <MaterialIcons
+                    name="library-books"
+                    size={16}
+                    color="#2CCCA6"
+                  />
+                  <Text style={styles.libraryBtnText}>My Library</Text>
+                  {scansRemaining !== null && (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>
+                        {scansRemaining} left
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        }
+      />
+
+      <TouchableOpacity
+        style={styles.backBtn}
+        onPress={() => navigation.goBack()}>
+        <MaterialIcons name="arrow-back-ios" size={22} color="#fff" />
+      </TouchableOpacity>
+      <View style={styles.titleContainer}>
+        <Text style={styles.title}>Scan Product</Text>
+      </View>
     </View>
   );
 };
 
-// ─── Styles ─────────────────────────────────────────────────────────────────
-const FRAME_SIZE = width * 0.65;
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
+  container: {flex: 1, backgroundColor: '#000'},
+  scannerContainer: {flex: 1},
+  camera: {height},
+  markerOuter: {width, height},
+  darkTop: {
+    width: '100%',
+    height: (height - SCAN_AREA - BOTTOM_H) / 2,
+    backgroundColor: DARK,
   },
-
-  // ── Overlay layout ──
-  overlayContainer: {
-    flex: 1,
-  },
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  middleRow: {flexDirection: 'row', width: '100%', height: SCAN_AREA},
+  darkSide: {flex: 1, backgroundColor: DARK},
+  darkBottom: {
+    width: '100%',
+    height: BOTTOM_H,
+    backgroundColor: DARK,
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 50,
-    paddingBottom: 12,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingTop: 20,
+    paddingHorizontal: 24,
   },
-  topBarTitle: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '600',
+  scanBox: {
+    width: SCAN_AREA,
+    height: SCAN_AREA,
+    backgroundColor: 'transparent',
+    overflow: 'hidden',
   },
-  closeButton: {
-    padding: 6,
+  corner: {position: 'absolute', width: CORNER_SIZE, height: CORNER_SIZE},
+  cornerTL: {
+    top: 0,
+    left: 0,
+    borderTopWidth: CORNER_W,
+    borderLeftWidth: CORNER_W,
+    borderColor: CORNER_COLOR,
+    borderTopLeftRadius: 4,
   },
-  closeText: {
-    color: '#fff',
-    fontSize: 14,
+  cornerTR: {
+    top: 0,
+    right: 0,
+    borderTopWidth: CORNER_W,
+    borderRightWidth: CORNER_W,
+    borderColor: CORNER_COLOR,
+    borderTopRightRadius: 4,
   },
-  torchButton: {
-    padding: 6,
+  cornerBL: {
+    bottom: 0,
+    left: 0,
+    borderBottomWidth: CORNER_W,
+    borderLeftWidth: CORNER_W,
+    borderColor: CORNER_COLOR,
+    borderBottomLeftRadius: 4,
   },
-  torchText: {
-    color: '#FFD700',
-    fontSize: 14,
+  cornerBR: {
+    bottom: 0,
+    right: 0,
+    borderBottomWidth: CORNER_W,
+    borderRightWidth: CORNER_W,
+    borderColor: CORNER_COLOR,
+    borderBottomRightRadius: 4,
   },
-
-  // ── Dimmed regions ──
-  dimmedTop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  middleRow: {
-    flexDirection: 'row',
-    height: FRAME_SIZE,
-  },
-  dimmedSide: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  dimmedBottom: {
-    flex: 1.5,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    paddingTop: 24,
-  },
-  hintText: {
-    color: '#fff',
-    fontSize: 14,
-    opacity: 0.85,
-  },
-
-  // ── Scan frame ──
-  scanFrame: {
-    width: FRAME_SIZE,
-    height: FRAME_SIZE,
-    position: 'relative',
-  },
-  corner: {
+  scanLine: {
     position: 'absolute',
-    width: 24,
-    height: 24,
-    borderColor: '#14BA9C',
-    borderWidth: 3,
-  },
-  topLeft: {
-    top: 0,
     left: 0,
-    borderRightWidth: 0,
-    borderBottomWidth: 0,
-  },
-  topRight: {
-    top: 0,
     right: 0,
-    borderLeftWidth: 0,
-    borderBottomWidth: 0,
+    height: 2,
+    backgroundColor: '#2CCCA6',
+    elevation: 4,
   },
-  bottomLeft: {
-    bottom: 0,
-    left: 0,
-    borderRightWidth: 0,
-    borderTopWidth: 0,
-  },
-  bottomRight: {
-    bottom: 0,
-    right: 0,
-    borderLeftWidth: 0,
-    borderTopWidth: 0,
-  },
-
-  // ── Permission screen ──
-  permissionContainer: {
-    flex: 1,
+  centerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 30,
-    backgroundColor: '#000',
   },
-  permissionText: {
+  savingText: {color: '#2CCCA6', marginTop: 8, fontSize: 13, fontWeight: '600'},
+  instructionText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 22,
+    opacity: 0.9,
+    marginBottom: 14,
   },
-  permissionButton: {
-    backgroundColor: '#14BA9C',
-    paddingVertical: 12,
-    paddingHorizontal: 32,
+  scannedValueBox: {
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: 8,
+    padding: 10,
+    width: '100%',
+    marginBottom: 14,
+    borderLeftWidth: 3,
+    borderLeftColor: '#2CCCA6',
+  },
+  scannedLabel: {
+    color: '#2CCCA6',
+    fontSize: 10,
+    fontWeight: '700',
+    marginBottom: 4,
+    letterSpacing: 1,
+  },
+  scannedValue: {color: '#fff', fontSize: 13},
+  btnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+  },
+  iconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#2CCCA6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  iconBtnActive: {backgroundColor: '#2CCCA6'},
+  rescanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#2CCCA6',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
     borderRadius: 10,
   },
-  permissionButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 15,
+  rescanText: {color: '#fff', fontWeight: 'bold', fontSize: 14},
+  libraryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#2CCCA6',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
   },
+  libraryBtnText: {color: '#2CCCA6', fontSize: 14, fontWeight: '600'},
+  badge: {
+    marginLeft: 4,
+    backgroundColor: '#2CCCA6',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  badgeText: {color: '#fff', fontSize: 10, fontWeight: 'bold'},
+  backBtn: {position: 'absolute', top: 50, left: 16, padding: 8, zIndex: 10},
+  titleContainer: {
+    position: 'absolute',
+    top: 50,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 9,
+  },
+  title: {color: '#fff', fontSize: 18, fontWeight: 'bold'},
 });
 
 export default ScanScreen;

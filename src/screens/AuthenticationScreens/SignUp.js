@@ -22,7 +22,7 @@ import {authAPI} from '../../api/apiService';
 
 const SignUp = ({route}) => {
   const navigation = useNavigation();
-  
+
   // Get plan details from route params (from SelectPlan screen)
   const {selectedPlan} = route?.params || {};
   const isPremiumPlan = selectedPlan === 'premium';
@@ -124,7 +124,9 @@ const SignUp = ({route}) => {
       const cardNumberRegex = /^\d{16}$/;
       if (!formData.card_number.trim()) {
         newErrors.card_number = 'Card number is required';
-      } else if (!cardNumberRegex.test(formData.card_number.replace(/\s/g, ''))) {
+      } else if (
+        !cardNumberRegex.test(formData.card_number.replace(/\s/g, ''))
+      ) {
         newErrors.card_number = 'Card number must be 16 digits';
       }
 
@@ -233,14 +235,14 @@ const SignUp = ({route}) => {
               }
             },
           },
-        ]
+        ],
       );
     } catch (error) {
       console.error('Registration error:', error);
 
       // Handle specific error messages
       let errorMessage = 'Registration failed. Please try again.';
-      
+
       if (error.status === 400) {
         errorMessage = error.message || 'Invalid registration data';
       } else if (error.status === 409) {
@@ -256,7 +258,10 @@ const SignUp = ({route}) => {
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{flexGrow: 1}}
+      keyboardShouldPersistTaps="handled">
       <StatusBar translucent={true} backgroundColor={'transparent'} />
       <ImageBackground
         source={require('../../../assets/vector_1.png')}
@@ -308,7 +313,7 @@ const SignUp = ({route}) => {
 
         <View style={{padding: '5%'}}>
           {/* ========== BASIC FIELDS (ALWAYS REQUIRED) ========== */}
-          
+
           {/* Full Name */}
           <Text style={styles.label}>Full Name</Text>
           <View
@@ -366,7 +371,9 @@ const SignUp = ({route}) => {
               keyboardType="email-address"
               autoCapitalize="none"
               value={formData.email}
-              onChangeText={text => handleInputChange('email', text.toLowerCase())}
+              onChangeText={text =>
+                handleInputChange('email', text.toLowerCase())
+              }
             />
           </View>
           {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
@@ -490,7 +497,12 @@ const SignUp = ({route}) => {
 
               {/* Gender */}
               <Text style={styles.label}>Gender</Text>
-              <View style={{flexDirection: 'row', marginVertical: '2%', justifyContent: 'space-between'}}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  marginVertical: '2%',
+                  justifyContent: 'space-between',
+                }}>
                 {['male', 'female', 'other'].map(gender => (
                   <TouchableOpacity
                     key={gender}
@@ -500,15 +512,18 @@ const SignUp = ({route}) => {
                       paddingVertical: 15,
                       borderRadius: 8,
                       borderWidth: 1.5,
-                      borderColor: formData.gender === gender ? '#14BA9C' : '#524B6B',
-                      backgroundColor: formData.gender === gender ? '#E4F3EE' : '#fff',
+                      borderColor:
+                        formData.gender === gender ? '#14BA9C' : '#524B6B',
+                      backgroundColor:
+                        formData.gender === gender ? '#E4F3EE' : '#fff',
                       alignItems: 'center',
                     }}
                     onPress={() => handleInputChange('gender', gender)}>
                     <Text
                       style={{
                         fontFamily: 'Nunito-SemiBold',
-                        color: formData.gender === gender ? '#14BA9C' : '#524B6B',
+                        color:
+                          formData.gender === gender ? '#14BA9C' : '#524B6B',
                         fontSize: hp(2),
                         textTransform: 'capitalize',
                       }}>
@@ -517,7 +532,9 @@ const SignUp = ({route}) => {
                   </TouchableOpacity>
                 ))}
               </View>
-              {errors.gender && <Text style={styles.errorText}>{errors.gender}</Text>}
+              {errors.gender && (
+                <Text style={styles.errorText}>{errors.gender}</Text>
+              )}
 
               {/* Phone Number */}
               <Text style={styles.label}>Phone Number</Text>
@@ -581,7 +598,9 @@ const SignUp = ({route}) => {
                   onChangeText={text => handleInputChange('address', text)}
                 />
               </View>
-              {errors.address && <Text style={styles.errorText}>{errors.address}</Text>}
+              {errors.address && (
+                <Text style={styles.errorText}>{errors.address}</Text>
+              )}
 
               {/* Card Information Section */}
               <View style={{marginTop: '5%', marginBottom: '3%'}}>
@@ -661,7 +680,9 @@ const SignUp = ({route}) => {
                   }}
                   placeholderTextColor={'gray'}
                   value={formData.cardholder_name}
-                  onChangeText={text => handleInputChange('cardholder_name', text)}
+                  onChangeText={text =>
+                    handleInputChange('cardholder_name', text)
+                  }
                 />
               </View>
               {errors.cardholder_name && (
@@ -669,7 +690,8 @@ const SignUp = ({route}) => {
               )}
 
               {/* Expiry Date and CVC */}
-              <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+              <View
+                style={{flexDirection: 'row', justifyContent: 'space-between'}}>
                 <View style={{flex: 0.48}}>
                   <Text style={styles.label}>Expiry Month</Text>
                   <View
@@ -695,7 +717,9 @@ const SignUp = ({route}) => {
                       keyboardType="number-pad"
                       maxLength={2}
                       value={formData.expiry_month}
-                      onChangeText={text => handleInputChange('expiry_month', text)}
+                      onChangeText={text =>
+                        handleInputChange('expiry_month', text)
+                      }
                     />
                   </View>
                   {errors.expiry_month && (
@@ -728,7 +752,9 @@ const SignUp = ({route}) => {
                       keyboardType="number-pad"
                       maxLength={4}
                       value={formData.expiry_year}
-                      onChangeText={text => handleInputChange('expiry_year', text)}
+                      onChangeText={text =>
+                        handleInputChange('expiry_year', text)
+                      }
                     />
                   </View>
                   {errors.expiry_year && (
@@ -771,7 +797,12 @@ const SignUp = ({route}) => {
 
               {/* Expertise Level */}
               <Text style={styles.label}>Expertise Level</Text>
-              <View style={{flexDirection: 'row', marginVertical: '2%', justifyContent: 'space-between'}}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  marginVertical: '2%',
+                  justifyContent: 'space-between',
+                }}>
                 {['beginner', 'intermediate', 'expert'].map(level => (
                   <TouchableOpacity
                     key={level}
@@ -781,15 +812,22 @@ const SignUp = ({route}) => {
                       paddingVertical: 15,
                       borderRadius: 8,
                       borderWidth: 1.5,
-                      borderColor: formData.expertise_level === level ? '#14BA9C' : '#524B6B',
-                      backgroundColor: formData.expertise_level === level ? '#E4F3EE' : '#fff',
+                      borderColor:
+                        formData.expertise_level === level
+                          ? '#14BA9C'
+                          : '#524B6B',
+                      backgroundColor:
+                        formData.expertise_level === level ? '#E4F3EE' : '#fff',
                       alignItems: 'center',
                     }}
                     onPress={() => handleInputChange('expertise_level', level)}>
                     <Text
                       style={{
                         fontFamily: 'Nunito-SemiBold',
-                        color: formData.expertise_level === level ? '#14BA9C' : '#524B6B',
+                        color:
+                          formData.expertise_level === level
+                            ? '#14BA9C'
+                            : '#524B6B',
                         fontSize: hp(1.8),
                         textTransform: 'capitalize',
                       }}>
@@ -875,9 +913,8 @@ const styles = StyleSheet.create({
     height: hp(10.5),
   },
   vector: {
-    flex: 1,
     width: wp(100),
-    height: hp(100),
+    minHeight: hp(100), // ← minHeight allows expansion
   },
   logoText: {
     fontFamily: 'Nunito-SemiBold',

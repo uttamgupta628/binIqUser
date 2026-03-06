@@ -6,8 +6,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Base API URL
-// const API_BASE_URL = 'http://10.45.4.75:3001';
-const API_BASE_URL = 'https://biniq.onrender.com';
+const API_BASE_URL = 'http://10.45.4.75:3001';
+// const API_BASE_URL = 'https://biniq.onrender.com';
 
 // API Configuration
 const API_CONFIG = {
@@ -210,6 +210,8 @@ const API_ENDPOINTS = {
     view: `${API_BASE_URL}/api/stores/view`,
     like: `${API_BASE_URL}/api/stores/like`,
     follow: `${API_BASE_URL}/api/stores/follow`,
+    checkin: `${API_BASE_URL}/api/stores/checkin`,
+    getCheckIns: `${API_BASE_URL}/api/stores/checkins`,
     comment: `${API_BASE_URL}/api/stores/comment`,
     getDetails: id => `${API_BASE_URL}/api/stores/details/${id}`,
     favorite: `${API_BASE_URL}/api/stores/favorite`,
@@ -400,6 +402,11 @@ export const storesAPI = {
 
   follow: storeId =>
     apiService.post(API_ENDPOINTS.stores.follow, {store_id: storeId}),
+
+  checkIn: storeId =>
+    apiService.post(API_ENDPOINTS.stores.checkin, {store_id: storeId}),
+
+  getCheckIns: () => apiService.get(API_ENDPOINTS.stores.getCheckIns),
 
   comment: (storeId, comment) =>
     apiService.post(API_ENDPOINTS.stores.comment, {
