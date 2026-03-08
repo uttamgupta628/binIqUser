@@ -1,5 +1,5 @@
-import { useNavigation } from "@react-navigation/native"
-import React, { useState, useEffect } from "react"
+import {useNavigation} from '@react-navigation/native';
+import React, {useState, useEffect} from 'react';
 import {
   View,
   Text,
@@ -11,9 +11,12 @@ import {
   Dimensions,
   ActivityIndicator,
   Alert,
-} from "react-native"
-import { heightPercentageToDP as hp, widthPercentageToDP as wp } from "react-native-responsive-screen"
-import Ionicons from "react-native-vector-icons/Ionicons"
+} from 'react-native';
+import {
+  heightPercentageToDP as hp,
+  widthPercentageToDP as wp,
+} from 'react-native-responsive-screen';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import EditProfile from '../../assets/EditProfile.svg';
 import Feedback from '../../assets/FeedBack.svg';
@@ -21,14 +24,14 @@ import ChangePassword from '../../assets/ChangePassword.svg';
 import Help from '../../assets/Help.svg';
 import ReferallProgram from '../../assets/ReferallProgram.svg';
 import Settings from '../../assets/Settings.svg';
-import { userAPI } from '../api/apiService';
+import {userAPI} from '../api/apiService';
 
-const { width } = Dimensions.get("window")
+const {width} = Dimensions.get('window');
 
-const CustomDrawer = ({ isOpen, closeDrawer }) => {
+const CustomDrawer = ({isOpen, closeDrawer}) => {
   const navigation = useNavigation();
   const translateX = React.useRef(new Animated.Value(-width)).current;
-  
+
   // State for user data
   const [loading, setLoading] = useState(true);
   const [userProfile, setUserProfile] = useState(null);
@@ -37,9 +40,9 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
     Animated.timing(translateX, {
       toValue: isOpen ? 0 : -width,
       duration: 300,
-      useNativeDriver: true
-    }).start()
-  }, [isOpen])
+      useNativeDriver: true,
+    }).start();
+  }, [isOpen]);
 
   // Fetch user profile when drawer opens
   useEffect(() => {
@@ -53,7 +56,7 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
       setLoading(true);
       const response = await userAPI.getProfile();
       console.log('CustomDrawer - User Profile:', response);
-      
+
       if (response) {
         const userData = response.user || response;
         setUserProfile(userData);
@@ -68,54 +71,51 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
 
   const handleLogout = () => {
     closeDrawer();
-    
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { 
-          text: 'Cancel', 
-          style: 'cancel' 
-        },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Clear auth token
-              await AsyncStorage.removeItem('@auth_token');
-              
-              // Navigate to login
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Login' }],
-              });
-            } catch (err) {
-              console.error('Error during logout:', err);
-              Alert.alert('Error', 'Failed to logout');
-            }
+
+    Alert.alert('Logout', 'Are you sure you want to logout?', [
+      {
+        text: 'Cancel',
+        style: 'cancel',
+      },
+      {
+        text: 'Logout',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await AsyncStorage.removeItem('authToken');
+            navigation.reset({
+              index: 0,
+              routes: [{name: 'Login'}],
+            });
+          } catch (err) {
+            console.error('Error during logout:', err);
+            Alert.alert('Error', 'Failed to logout');
           }
-        }
-      ]
-    );
+        },
+      },
+    ]);
   };
 
-  const handleMenuPress = (screen) => {
+  const handleMenuPress = screen => {
     closeDrawer();
     navigation.navigate(screen);
   };
 
   const menuItems = [
-    { icon: <EditProfile />, label: "Edit Profile", goto: 'EditProfileScreen' },
-    { icon: <Feedback />, label: "Feedback", goto: 'Feedback' },
-    { icon: <ChangePassword />, label: "Change Password", goto: 'ChangePassword' },
-    { icon: <Help />, label: "Help", goto: 'HelpAndSupport' },
-    { icon: <ReferallProgram />, label: "Referral Program", goto: 'ReferFriend' },
-    { icon: <Settings />, label: "Settings", goto: 'SettingsScreen' },
-  ]
+    {icon: <EditProfile />, label: 'Edit Profile', goto: 'EditProfileScreen'},
+    {icon: <Feedback />, label: 'Feedback', goto: 'Feedback'},
+    {
+      icon: <ChangePassword />,
+      label: 'Change Password',
+      goto: 'ChangePassword',
+    },
+    {icon: <Help />, label: 'Help', goto: 'HelpAndSupport'},
+    {icon: <ReferallProgram />, label: 'Referral Program', goto: 'ReferFriend'},
+    {icon: <Settings />, label: 'Settings', goto: 'SettingsScreen'},
+  ];
 
   return (
-    <Animated.View style={[styles.container, { transform: [{ translateX }] }]}>
+    <Animated.View style={[styles.container, {transform: [{translateX}]}]}>
       <TouchableOpacity style={styles.closeButton} onPress={closeDrawer}>
         <Ionicons name="close" size={hp(3.4)} color="black" />
       </TouchableOpacity>
@@ -131,13 +131,12 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
           <>
             <TouchableOpacity
               style={styles.profileImageContainer}
-              onPress={() => handleMenuPress('EditProfileScreen')}
-            >
+              onPress={() => handleMenuPress('EditProfileScreen')}>
               <Image
                 source={
                   userProfile?.profile_image
-                    ? { uri: userProfile.profile_image }
-                    : require("../../assets/profile_img.png")
+                    ? {uri: userProfile.profile_image}
+                    : require('../../assets/profile_img.png')
                 }
                 style={styles.profilePicture}
               />
@@ -184,7 +183,10 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
               <View style={styles.subscriptionBadge}>
                 <Ionicons name="star" size={12} color="#FFD700" />
                 <Text style={styles.subscriptionText}>
-                  {userProfile.subscription} Member
+                  {typeof userProfile.subscription === 'object'
+                    ? (userProfile.subscription.plan || 'Premium').toUpperCase()
+                    : userProfile.subscription}{' '}
+                  Member
                 </Text>
               </View>
             )}
@@ -195,15 +197,12 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
       {/* Menu Items */}
       <ScrollView style={styles.menuItems} showsVerticalScrollIndicator={false}>
         {menuItems.map((item, index) => (
-          <TouchableOpacity 
-            key={index} 
-            style={styles.menuItem} 
-            onPress={() => handleMenuPress(item.goto)}
-          >
-            <View style={{ width: '9%' }}>
-              {item.icon}
-            </View>
-            <View style={{ flex: 1 }}>
+          <TouchableOpacity
+            key={index}
+            style={styles.menuItem}
+            onPress={() => handleMenuPress(item.goto)}>
+            <View style={{width: '9%'}}>{item.icon}</View>
+            <View style={{flex: 1}}>
               <Text style={styles.menuItemLabel}>{item.label}</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#999" />
@@ -222,20 +221,20 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
         </View>
       </ScrollView>
     </Animated.View>
-  )
-}
+  );
+};
 
 const styles = StyleSheet.create({
   container: {
-    position: "absolute",
+    position: 'absolute',
     top: 0,
     left: 0,
     bottom: 0,
     width: width * 0.8,
-    backgroundColor: "white",
+    backgroundColor: 'white',
     paddingTop: 50,
     paddingHorizontal: 20,
-    shadowColor: "#000",
+    shadowColor: '#000',
     shadowOffset: {
       width: 0,
       height: 2,
@@ -245,18 +244,18 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   closeButton: {
-    position: "absolute",
+    position: 'absolute',
     top: 10,
     right: 10,
     zIndex: 1,
-    paddingVertical: '5%'
+    paddingVertical: '5%',
   },
   profileSection: {
-    alignItems: "center",
+    alignItems: 'center',
     marginBottom: 20,
     borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-    paddingBottom: 20
+    borderBottomColor: '#f0f0f0',
+    paddingBottom: 20,
   },
   loadingContainer: {
     paddingVertical: 20,
@@ -349,11 +348,11 @@ const styles = StyleSheet.create({
     marginLeft: 5,
   },
   menuItems: {
-    flex: 1
+    flex: 1,
   },
   menuItem: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: '4.5%',
     borderBottomWidth: 0.5,
     borderBottomColor: '#f0f0f0',
@@ -362,21 +361,21 @@ const styles = StyleSheet.create({
     marginLeft: 15,
     fontSize: hp(2),
     color: '#0D0D26',
-    fontFamily: 'Nunito-SemiBold'
+    fontFamily: 'Nunito-SemiBold',
   },
   logoutButton: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 15,
     marginTop: 10,
     borderTopWidth: 1,
-    borderTopColor: "#f0f0f0"
+    borderTopColor: '#f0f0f0',
   },
   logoutText: {
     marginLeft: 15,
-    color: "red",
+    color: 'red',
     fontSize: hp(2),
-    fontFamily: 'Nunito-SemiBold'
+    fontFamily: 'Nunito-SemiBold',
   },
   versionContainer: {
     alignItems: 'center',
@@ -387,6 +386,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Nunito-Regular',
     color: '#999',
   },
-})
+});
 
-export default CustomDrawer
+export default CustomDrawer;

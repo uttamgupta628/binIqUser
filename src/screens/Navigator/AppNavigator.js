@@ -1,6 +1,6 @@
 import {StyleSheet, Text, View} from 'react-native';
 import React, {useState} from 'react';
-import {NavigationContainer} from '@react-navigation/native';
+import { NavigationContainer } from '@react-navigation/native'
 import {createStackNavigator} from '@react-navigation/stack';
 import SplashScreen from '../SplashScreen';
 import GettingStarted from '../OnBoardingScreens/GettingStarted';
@@ -34,6 +34,7 @@ import SettingsScreen from '../MainScreens/SettingsScreen';
 import ChangePassword from '../AuthenticationScreens/ChangePassword';
 import SelectUserRole from '../OnBoardingScreens/SelectUserRole';
 import SelectPlan from '../OnBoardingScreens/SelectPlan';
+import SelectPremiumPlan from '../OnBoardingScreens/SelectPremiumPlan'; 
 import FreeSubscription from '../SubscriptionScreens/FreeSubscription';
 import PayWall from '../SubscriptionScreens/PayWall';
 import EditProfileScreen from '../MainScreens/EditProfileScreen';
@@ -44,9 +45,7 @@ const AppNavigator = () => {
 
   return (
     <NavigationContainer>
-      <Stack.Navigator
-      // initialRouteName='PayWall'
-      >
+      <Stack.Navigator>
         <Stack.Screen
           name="SplashScreen"
           component={SplashScreen}
@@ -205,6 +204,12 @@ const AppNavigator = () => {
         <Stack.Screen
           name="SelectPlan"
           component={SelectPlan}
+          options={{headerShown: false}}
+        />
+        {/* ✅ NEW — Premium tier selection screen */}
+        <Stack.Screen
+          name="SelectPremiumPlan"
+          component={SelectPremiumPlan}
           options={{headerShown: false}}
         />
         <Stack.Screen
