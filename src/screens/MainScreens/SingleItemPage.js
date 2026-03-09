@@ -7,7 +7,6 @@ import {
   ScrollView,
   TouchableOpacity,
   FlatList,
-  Dimensions,
   ImageBackground,
   StatusBar,
   Pressable,
@@ -22,489 +21,557 @@ import {
 } from 'react-native-responsive-screen';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import Heart_Icon from '../../../assets/heart_icon.svg';
 import Share_Icon from '../../../assets/share_icon.svg';
 
-// Import API services
-import { productsAPI, storesAPI } from '../../api/apiService';
+import {productsAPI} from '../../api/apiService';
 
-const {width} = Dimensions.get('window');
+const PLACEHOLDER = require('../../../assets/gray_img.png');
 
+// ─────────────────────────────────────────────────────────────────────────────
+// normalizeProduct
+//
+// Handles two possible input shapes:
+//
+//   A) "local" shape  — items that were normalised by BinStorePage's
+//      normaliseProduct() before being passed as initialData. These have
+//      `image` as a { uri } object and `price` already formatted as a string
+//      like "$12" or a number.
+//
+//   B) "raw API" shape — objects returned directly from productsAPI.getById().
+//      These have `image_inner` / `image_outer` strings and numeric prices.
+//
+// The function returns a unified shape that the rest of the screen uses.
+// ─────────────────────────────────────────────────────────────────────────────
+const normalizeProduct = raw => {
+  if (!raw) return null;
+
+  // Helper: parse a price value that might be a number, a plain string like
+  // "12", or a formatted string like "$12.00".
+  const parsePrice = val => {
+    if (val == null) return null;
+    const n = parseFloat(String(val).replace(/[^0-9.]/g, ''));
+    return isNaN(n) ? null : n;
+  };
+
+  // Detect the "local / BinStorePage-normalised" shape by checking for the
+  // fields that normaliseProduct() always produces: `discountPrice` or `image`
+  // being an object (not a plain string).
+  const isLocalShape =
+    raw.discountPrice !== undefined ||
+    (raw.image !== undefined && typeof raw.image !== 'string');
+
+  if (isLocalShape) {
+    let originalPrice = null;
+    let offerPrice = null;
+
+    if (raw.discountPrice && raw.originalPrice) {
+      // BinStorePage card shape: discountPrice = offer, originalPrice = original
+      offerPrice = parsePrice(raw.discountPrice);
+      originalPrice = parsePrice(raw.originalPrice);
+    } else {
+      originalPrice = parsePrice(raw.price);
+    }
+
+    // image can be: { uri: string } | string | require(...) number
+    const imageUri =
+      typeof raw.image === 'object' && raw.image?.uri
+        ? raw.image.uri
+        : typeof raw.image === 'string'
+        ? raw.image
+        : raw.product_image || null;
+
+    return {
+      _id: raw._id || raw.id,
+      title: raw.title || 'Untitled Product',
+      description: raw.description || '',
+      image_inner: imageUri,
+      image_outer: imageUri,
+      _originalImage: raw.image, // keep original for fallback
+      price: originalPrice,
+      offer_price: offerPrice,
+      upc_id: raw.upc_id || null,
+      type: raw.type || null,
+      category_id: raw.category_id || null,
+      status: raw.status || null,
+      tags: raw.tags || [],
+      createdAt: raw.createdAt || null,
+    };
+  }
+
+  // Raw API shape — just spread and normalise image fields
+  return {
+    ...raw,
+    image_inner:
+      raw.image_inner ||
+      raw.imageInner ||
+      raw.inner_image ||
+      raw.product_image ||
+      (typeof raw.image === 'string' ? raw.image : raw.image?.uri) ||
+      null,
+    image_outer:
+      raw.image_outer ||
+      raw.imageOuter ||
+      raw.outer_image ||
+      raw.product_image ||
+      (typeof raw.image === 'string' ? raw.image : raw.image?.uri) ||
+      null,
+  };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getImageSource
+// Converts any image value into a valid RN <Image> source prop.
+// Handles: string URL, { uri } object, require() number, null/undefined.
+// ─────────────────────────────────────────────────────────────────────────────
+const getImageSource = value => {
+  if (!value) return PLACEHOLDER;
+  if (typeof value === 'string' && value.length > 0) return {uri: value};
+  if (typeof value === 'object' && value.uri) return {uri: value.uri};
+  if (typeof value === 'number') return value; // require() result
+  return PLACEHOLDER;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
 const SingleItemPage = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  
-  // Get productId from navigation params
-  const { productId } = route.params || {};
-  
-  // State
-  const [loading, setLoading] = useState(true);
-  const [product, setProduct] = useState(null);
+
+  // Route params:
+  //   productId   — ID to fetch fresh data from the API
+  //   initialData — pre-normalised object from BinStorePage (instant display)
+  //   section     — passed through for similar-item navigation context
+  //   data        — the full list from BinStorePage, used to build similarItems
+  //                 locally (same approach as the reference code)
+  const {productId, initialData, section, data} = route.params || {};
+
+  const [product, setProduct] = useState(
+    initialData ? normalizeProduct(initialData) : null,
+  );
   const [similarItems, setSimilarItems] = useState([]);
+  const [isLoading, setIsLoading] = useState(!initialData);
+  const [activeImage, setActiveImage] = useState('inner');
   const [isFavorite, setIsFavorite] = useState(false);
 
   useEffect(() => {
-    if (productId) {
-      fetchProductDetails();
-      fetchSimilarItems();
-    } else {
+    const id = productId || initialData?._id || initialData?.id;
+
+    if (!id) {
       Alert.alert('Error', 'No product ID provided');
       navigation.goBack();
+      return;
     }
+
+    // ── Similar items — built locally from the data list passed by
+    // BinStorePage, exactly like the reference code does it.
+    // Falls back to empty if data wasn't passed (e.g. cold navigation).
+    if (data && data.length > 0) {
+      const filtered = data
+        .filter(item => (item._id || item.id) !== id)
+        .sort(() => 0.5 - Math.random())
+        .slice(0, 4);
+      setSimilarItems(filtered);
+    }
+
+    // ── Product details ────────────────────────────────────────────
+    // If initialData was passed (from BinStorePage cards), we already
+    // have everything we need — skip the API call entirely to avoid
+    // unnecessary network errors. Only fetch when opening cold (no data).
+    if (initialData) {
+      // Data is already set from useState initializer — nothing else to do.
+      setIsLoading(false);
+      return;
+    }
+
+    const loadProduct = async () => {
+      try {
+        setIsLoading(true);
+        const result = await productsAPI.getById(id);
+        if (result) {
+          setProduct(normalizeProduct(result));
+        }
+      } catch (error) {
+        console.error('SingleItemPage load error:', error.message);
+        Alert.alert('Error', 'Failed to load product details');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadProduct();
   }, [productId]);
 
-  const fetchProductDetails = async () => {
-    try {
-      setLoading(true);
-      const response = await productsAPI.getById(productId);
-      
-      console.log('Product Details Response:', response);
-      
-      if (response) {
-        setProduct(response);
-        // Check if product is in favorites
-        // setIsFavorite(response.isFavorited || false);
-      }
-    } catch (error) {
-      console.error('Error fetching product details:', error);
-      Alert.alert('Error', 'Failed to load product details');
-    } finally {
-      setLoading(false);
-    }
+  // ── Image resolution ──────────────────────────────────────────
+  const innerImageSource = getImageSource(product?.image_inner);
+  const outerImageSource = getImageSource(product?.image_outer);
+
+  // If the resolved source is still PLACEHOLDER but we have the original
+  // image object from the local shape, try that as a last resort.
+  const resolvedInner =
+    innerImageSource === PLACEHOLDER && product?._originalImage
+      ? getImageSource(product._originalImage)
+      : innerImageSource;
+
+  const resolvedOuter =
+    outerImageSource === PLACEHOLDER && product?._originalImage
+      ? getImageSource(product._originalImage)
+      : outerImageSource;
+
+  const displayImage = activeImage === 'inner' ? resolvedInner : resolvedOuter;
+
+  // Show the Inner/Outer toggle only when both images exist and differ
+  const hasBothImages =
+    product?.image_inner &&
+    product?.image_outer &&
+    product.image_inner !== product.image_outer;
+
+  // ── Price helpers ─────────────────────────────────────────────
+  const rawPrice = Number(product?.price);
+  const rawOffer = Number(product?.offer_price);
+  const hasDiscount =
+    product?.offer_price && rawOffer > 0 && rawOffer < rawPrice;
+
+  const displayOffer = hasDiscount
+    ? `$${rawOffer}`
+    : rawPrice
+    ? `$${rawPrice}`
+    : '';
+  const displayOriginal = hasDiscount ? `$${rawPrice}` : null;
+  const discountPercent = hasDiscount
+    ? `${Math.round(((rawPrice - rawOffer) / rawPrice) * 100)}% Off`
+    : '';
+
+  // ── Meta helpers ──────────────────────────────────────────────
+  const categoryName =
+    product?.category_id?.category_name ||
+    product?.category?.category_name ||
+    (typeof product?.category_id === 'string' ? product.category_id : null) ||
+    null;
+
+  const upcId = product?.upc_id || null;
+
+  const typeLabel =
+    product?.type === 1
+      ? 'Trending'
+      : product?.type === 2
+      ? 'Activity Feed'
+      : null;
+
+  const createdDate = product?.createdAt
+    ? new Date(product.createdAt).toLocaleString()
+    : null;
+
+  // ── Favourite ─────────────────────────────────────────────────
+  const handleToggleFavorite = () => {
+    setIsFavorite(prev => !prev);
+    Alert.alert(
+      'Success',
+      isFavorite ? 'Removed from favorites' : 'Added to favorites',
+    );
   };
 
-  const fetchSimilarItems = async () => {
-    try {
-      // Fetch products from same category or all products
-      const response = await productsAPI.getAll();
-      
-      console.log('Similar Items Response:', response);
-      
-      if (Array.isArray(response)) {
-        // Filter out current product and limit to 4-6 items
-        const filtered = response
-          .filter(item => item._id !== productId)
-          .slice(0, 6);
-        setSimilarItems(filtered);
-      }
-    } catch (error) {
-      console.error('Error fetching similar items:', error);
-    }
-  };
-
-  const handleToggleFavorite = async () => {
-    try {
-      // Call your favorite API endpoint
-      // const response = await productsAPI.toggleFavorite(productId);
-      
-      setIsFavorite(!isFavorite);
-      Alert.alert('Success', isFavorite ? 'Removed from favorites' : 'Added to favorites');
-    } catch (error) {
-      console.error('Error toggling favorite:', error);
-      Alert.alert('Error', 'Failed to update favorites');
-    }
-  };
-
-  const handleShare = async () => {
-    try {
-      await Share.share({
-        message: `Check out this item: ${product?.title || 'Product'}\nPrice: $${product?.price || '0'}`,
-        title: product?.title || 'Product',
-      });
-    } catch (error) {
-      console.error('Error sharing:', error);
-    }
-  };
-
+  // ── Add to library ────────────────────────────────────────────
   const handleAddToLibrary = () => {
     Alert.alert('Success', 'Added to your library');
   };
 
-  const renderStars = (rating = 4.5) => {
-    const stars = [];
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 !== 0;
+  // ── Share — same rich logic as the reference code ─────────────
+  const handleShare = async () => {
+    try {
+      const title = product?.title || 'Check out this product';
+      const description = product?.description
+        ? `${product.description}\n\n`
+        : '';
+      const priceText = displayOffer
+        ? `Price: ${displayOffer}${
+            displayOriginal ? `  (was ${displayOriginal})` : ''
+          }`
+        : '';
 
-    for (let i = 0; i < fullStars; i++) {
-      stars.push(
-        <Ionicons key={`full-${i}`} name="star" size={18} color="#FFD700" />
-      );
+      await Share.share({
+        title,
+        message: `${title}\n\n${description}${priceText}`.trim(),
+      });
+    } catch (error) {
+      console.error('Share error:', error.message);
     }
-
-    if (hasHalfStar) {
-      stars.push(
-        <Ionicons key="half" name="star-half" size={18} color="#FFD700" />
-      );
-    }
-
-    const emptyStars = 5 - Math.ceil(rating);
-    for (let i = 0; i < emptyStars; i++) {
-      stars.push(
-        <Ionicons key={`empty-${i}`} name="star-outline" size={18} color="#FFD700" />
-      );
-    }
-
-    return stars;
   };
 
-  const calculateDiscount = (originalPrice, discountedPrice) => {
-    if (!originalPrice || !discountedPrice) return '0';
-    const discount = ((originalPrice - discountedPrice) / originalPrice) * 100;
-    return Math.round(discount);
-  };
-
-  const renderSimilarItem = ({item}) => {
-    const discount = calculateDiscount(item.original_price, item.price);
-    
+  // ── Loading screen ────────────────────────────────────────────
+  if (isLoading && !product) {
     return (
-      <Pressable
-        style={{width: wp(45), height: hp(26), alignItems: 'center', marginVertical: '1%'}}
-        onPress={() => {
-          // Navigate to this product's detail page
-          navigation.push('SingleItemPage', { productId: item._id });
-        }}>
-        <View
-          style={{
-            width: wp(43),
-            height: hp(26),
-            borderRadius: 5,
-            borderWidth: 1,
-            borderColor: '#e6e6e6',
-            backgroundColor: '#fff',
-          }}>
-          <Image
-            source={
-              item.product_image 
-                ? { uri: item.product_image }
-                : require('../../../assets/gray_img.png')
-            }
-            style={{width: wp(43), height: hp(13), borderRadius: 5}}
-          />
-          <Pressable
-            onPress={() => handleToggleFavorite()}
-            style={{position: 'absolute', right: '2%', top: '2%'}}>
-            <Ionicons
-              name="heart"
-              size={hp(3)}
-              color={'#EE2525'}
-            />
-          </Pressable>
-          <View style={{paddingHorizontal: '1%'}}>
-            <Text
-              numberOfLines={2}
-              style={{
-                fontFamily: 'Nunito-SemiBold',
-                color: '#000',
-                fontSize: hp(1.7),
-                margin: '0.5%',
-              }}>
-              {item.title || item.description || 'Product'}
-            </Text>
-          </View>
-          <View
-            style={{position: 'absolute', bottom: '2%', paddingHorizontal: '3%'}}>
-            <View>
-              <Text
-                style={{
-                  fontFamily: 'Nunito-Bold',
-                  color: '#000',
-                  fontSize: hp(1.8),
-                }}>
-                ${item.price || '0'}
-              </Text>
-              {item.original_price && item.original_price > item.price && (
-                <Text style={{color: 'red'}}>
-                  <Text
-                    style={{
-                      fontFamily: 'Nunito-Bold',
-                      color: '#808488',
-                      fontSize: hp(1.8),
-                      textDecorationLine: 'line-through',
-                    }}>
-                    ${item.original_price}
-                  </Text>
-                  {'  '}
-                  {discount}% off
-                </Text>
-              )}
-            </View>
-          </View>
-        </View>
-      </Pressable>
-    );
-  };
-
-  if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E6F3F5' }}>
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#130160" />
-        <Text style={{ marginTop: 10, fontFamily: 'Nunito-Regular', color: '#000' }}>
-          Loading product...
-        </Text>
+        <Text style={styles.loadingText}>Loading product...</Text>
       </View>
     );
   }
 
   if (!product) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E6F3F5' }}>
-        <Text style={{ fontFamily: 'Nunito-Regular', color: '#000' }}>
-          Product not found
-        </Text>
-        <TouchableOpacity 
-          style={{ marginTop: 20, padding: 10, backgroundColor: '#130160', borderRadius: 8 }}
-          onPress={() => navigation.goBack()}>
-          <Text style={{ color: '#fff', fontFamily: 'Nunito-SemiBold' }}>Go Back</Text>
+      <View style={styles.loadingContainer}>
+        <Text style={styles.loadingText}>Product not found.</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Text style={[styles.loadingText, {color: '#130160', marginTop: 10}]}>
+            Go Back
+          </Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  const discount = calculateDiscount(product.original_price, product.price);
-  const rating = product.rating || 4.5;
-  const reviewCount = product.review_count || 56890;
+  // ── Similar item card — mirrors the reference exactly ─────────
+  const renderSimilarItem = ({item}) => (
+    <Pressable
+      style={styles.similarItemContainer}
+      onPress={() =>
+        navigation.push('SinglePageItem', {
+          productId: item._id || item.id,
+          initialData: item,
+          section,
+          data,
+        })
+      }>
+      <View style={styles.similarItemCard}>
+        <Image
+          source={getImageSource(item.image || item.product_image)}
+          style={styles.similarItemImage}
+        />
+        <View style={styles.similarItemDescriptionContainer}>
+          <Text style={styles.similarItemDescription} numberOfLines={2}>
+            {item.description || item.title}
+          </Text>
+        </View>
+        <View style={styles.similarItemPriceContainer}>
+          <Text style={styles.similarItemDiscountPrice}>
+            {item.discountPrice || (item.price ? `$${item.price}` : '')}
+          </Text>
+          {item.originalPrice && (
+            <Text style={styles.similarItemPriceText}>
+              <Text style={styles.similarItemOriginalPrice}>
+                {item.originalPrice}
+              </Text>
+              {'  '}
+              {item.totalDiscount}
+            </Text>
+          )}
+        </View>
+      </View>
+    </Pressable>
+  );
 
+  // ── Main render ───────────────────────────────────────────────
   return (
     <ScrollView style={styles.container}>
-      <StatusBar translucent={true} backgroundColor={'transparent'} />
+      <StatusBar translucent={true} backgroundColor="transparent" />
       <ImageBackground
         source={require('../../../assets/vector_1.png')}
         style={styles.vector}
         resizeMode="stretch">
-        {/* Header */}
+        {/* ── Header — only Share icon, no Heart (matches reference) ── */}
         <View style={styles.header}>
           <View style={styles.headerChild}>
             <Pressable onPress={() => navigation.goBack()}>
-              <MaterialIcons name="arrow-back-ios" color={'#0D0D26'} size={25} />
+              <MaterialIcons name="arrow-back-ios" color="#0D0D26" size={25} />
             </Pressable>
             <Text style={styles.headerText}>Item</Text>
           </View>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              width: '23%',
-            }}>
-            <Pressable onPress={handleToggleFavorite}>
-              <Ionicons 
-                name={isFavorite ? "heart" : "heart-outline"} 
-                size={hp(3.5)} 
-                color={isFavorite ? "#EE2525" : "#0D0D26"} 
-              />
-            </Pressable>
-            <Pressable onPress={handleShare}>
-              <Share_Icon height={hp(4)} />
-            </Pressable>
-          </View>
+          <Pressable onPress={handleShare} style={styles.shareButton}>
+            <Share_Icon height={hp(4)} />
+          </Pressable>
         </View>
 
-        {/* Product Image */}
-        <View
-          style={{
-            width: '90%',
-            height: hp(27),
-            marginHorizontal: '5%',
-            borderRadius: 10,
-            marginVertical: '5%',
-          }}>
+        {/* ── Main image ── */}
+        <View style={styles.mainImageContainer}>
           <Image
-            source={
-              product.product_image 
-                ? { uri: product.product_image }
-                : require('../../../assets/specific_item.png')
-            }
-            style={{width: '100%', height: '100%', borderRadius: 10}}
+            source={displayImage}
+            style={styles.mainImage}
             resizeMode="cover"
           />
         </View>
 
-        <View style={{paddingHorizontal: '5%'}}>
-          {/* Rating */}
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'flex-end',
-              alignItems: 'center',
-            }}>
-            <View style={styles.ratingContainer}>
-              {renderStars(rating)}
-              <Text style={styles.ratingText}>{reviewCount.toLocaleString()}</Text>
-            </View>
-          </View>
-
-          {/* Price */}
-          <View style={styles.priceContainer}>
-            {product.original_price && product.original_price > product.price && (
-              <Text style={styles.originalPrice}>${product.original_price}</Text>
-            )}
-            <Text style={styles.discountedPrice}>${product.price || '0'}</Text>
-            {discount > 0 && (
-              <Text style={styles.discount}>{discount}% Off</Text>
-            )}
-          </View>
-
-          {/* Product Details */}
-          <View style={styles.detailsContainer}>
-            <Text style={styles.title}>
-              {product.title || 'Product Title'}
-            </Text>
-            
-            <View style={{marginVertical: '1%'}}>
-              <Text style={styles.detailsTitle}>Item Details</Text>
-              <Text style={styles.detailsText}>
-                {product.description || 'No description available'}
+        {/* ── Inner / Outer toggle — only shown when both images differ ── */}
+        {hasBothImages && (
+          <View style={styles.imageToggleRow}>
+            <TouchableOpacity
+              style={[
+                styles.toggleBtn,
+                activeImage === 'inner' && styles.toggleBtnActive,
+              ]}
+              onPress={() => setActiveImage('inner')}>
+              <Text
+                style={[
+                  styles.toggleBtnText,
+                  activeImage === 'inner' && styles.toggleBtnTextActive,
+                ]}>
+                Inner
               </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.toggleBtn,
+                activeImage === 'outer' && styles.toggleBtnActive,
+              ]}
+              onPress={() => setActiveImage('outer')}>
+              <Text
+                style={[
+                  styles.toggleBtnText,
+                  activeImage === 'outer' && styles.toggleBtnTextActive,
+                ]}>
+                Outer
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <View style={styles.contentContainer}>
+          {/* ── Price ── */}
+          {displayOffer ? (
+            <View style={styles.priceContainer}>
+              {displayOriginal && (
+                <Text style={styles.originalPrice}>{displayOriginal}</Text>
+              )}
+              <Text style={styles.discountedPrice}>{displayOffer}</Text>
+              {discountPercent ? (
+                <Text style={styles.discount}>{discountPercent}</Text>
+              ) : null}
             </View>
+          ) : null}
 
-            <View style={{marginVertical: '1%'}}>
-              {product.category_id && (
-                <Text
-                  style={{
-                    fontFamily: 'Nunito-Bold',
-                    fontSize: hp(2),
-                    color: '#000',
-                    marginBottom: 4,
-                  }}>
-                  Category:{' '}
-                  <Text
-                    style={{
-                      fontFamily: 'Nunito-SemiBold',
-                      fontSize: hp(1.9),
-                      color: '#666',
-                    }}>
-                    {product.category_id.category_name || 'N/A'}
-                  </Text>
-                </Text>
-              )}
-              
-              {product.upc_id && (
-                <Text
-                  style={{
-                    fontFamily: 'Nunito-Bold',
-                    fontSize: hp(2),
-                    color: '#000',
-                    marginBottom: 4,
-                  }}>
-                  UPC #:{' '}
-                  <Text
-                    style={{
-                      fontFamily: 'Nunito-SemiBold',
-                      fontSize: hp(1.7),
-                      color: '#666',
-                    }}>
-                    {product.upc_id}
-                  </Text>
-                </Text>
-              )}
+          {/* ── Title & details ── */}
+          <View style={styles.detailsContainer}>
+            <Text style={styles.title}>{product.title}</Text>
 
-              {product.tags && product.tags.length > 0 && (
-                <Text
-                  style={{
-                    fontFamily: 'Nunito-Bold',
-                    fontSize: hp(2),
-                    color: '#000',
-                    marginTop: 8,
-                  }}>
-                  Tags:{' '}
-                  <Text
-                    style={{
-                      fontFamily: 'Nunito-SemiBold',
-                      fontSize: hp(1.7),
-                      color: '#666',
-                    }}>
-                    {product.tags.join(', ')}
-                  </Text>
-                </Text>
-              )}
+            {product.description ? (
+              <View style={styles.itemDetailsContainer}>
+                <Text style={styles.detailsTitle}>Item Details</Text>
+                <Text style={styles.detailsText}>{product.description}</Text>
+              </View>
+            ) : null}
 
-              {product.status && (
-                <View style={{
-                  alignSelf: 'flex-start',
-                  backgroundColor: product.status === 'active' ? '#e0f2f1' : '#ffebee',
-                  borderRadius: 16,
-                  paddingVertical: 4,
-                  paddingHorizontal: 12,
-                  marginTop: 8,
-                }}>
-                  <Text style={{
-                    fontFamily: 'Nunito-SemiBold',
-                    fontSize: 12,
-                    color: product.status === 'active' ? '#00897b' : '#c62828',
-                    textTransform: 'capitalize',
-                  }}>
-                    {product.status}
+            {/* ── Metadata ── */}
+            {(categoryName || upcId || typeLabel || createdDate) && (
+              <View style={styles.itemMetaContainer}>
+                {categoryName && (
+                  <Text style={styles.metaText}>
+                    Category:{' '}
+                    <Text style={styles.metaValue}>{categoryName}</Text>
                   </Text>
-                </View>
-              )}
-            </View>
+                )}
+                {upcId && (
+                  <Text style={styles.metaText}>
+                    UPC #: <Text style={styles.metaValue}>{upcId}</Text>
+                  </Text>
+                )}
+                {typeLabel && (
+                  <Text style={styles.metaText}>
+                    Type - <Text style={styles.metaValue}>{typeLabel}</Text>
+                  </Text>
+                )}
+                {createdDate && (
+                  <Text style={styles.metaText}>
+                    Date and time -{' '}
+                    <Text style={styles.metaValue}>{createdDate}</Text>
+                  </Text>
+                )}
+                {product.status && (
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      {
+                        backgroundColor:
+                          product.status === 'active' ? '#e0f2f1' : '#ffebee',
+                      },
+                    ]}>
+                    <Text
+                      style={[
+                        styles.statusText,
+                        {
+                          color:
+                            product.status === 'active' ? '#00897b' : '#c62828',
+                        },
+                      ]}>
+                      {product.status}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
           </View>
 
-          {/* Action Buttons */}
+          {/* ── Action buttons — My Fav + Add Library ── */}
           <View style={styles.buttonContainer}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.button}
               onPress={handleToggleFavorite}>
-              <Ionicons 
-                name={isFavorite ? "heart" : "heart-outline"} 
-                size={18} 
-                color="#000" 
+              <Ionicons
+                name={isFavorite ? 'heart' : 'heart-outline'}
+                size={18}
+                color="#000"
               />
               <Text style={styles.buttonText}>
                 {isFavorite ? 'Favorited' : 'My Fav'}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.button}
               onPress={handleAddToLibrary}>
-              <Text style={styles.buttonText}>Add library</Text>
+              <Text style={styles.buttonText}>Add Library</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Similar Items */}
-          <View style={{marginVertical: '3%'}}>
-            <Text
-              style={{
-                fontFamily: 'Nunito-Bold',
-                fontSize: hp(2.3),
-                color: '#000000',
-                marginVertical: '5%',
-              }}>
-              SIMILAR ITEMS ({similarItems.length})
-            </Text>
-            {similarItems.length > 0 ? (
-              <View style={{flex: 1, width: '100%', alignItems: 'center'}}>
+          {/* ── Similar items ── */}
+          {similarItems.length > 0 && (
+            <View style={styles.similarItemsSection}>
+              <Text style={styles.similarItemsTitle}>SIMILAR ITEMS</Text>
+              <View style={styles.similarItemsContainer}>
                 <FlatList
                   data={similarItems}
                   renderItem={renderSimilarItem}
-                  keyExtractor={item => item._id?.toString()}
+                  keyExtractor={(item, index) =>
+                    (item._id || item.id)?.toString() || `similar-${index}`
+                  }
                   numColumns={2}
+                  scrollEnabled={false}
                 />
               </View>
-            ) : (
-              <Text style={{
-                fontFamily: 'Nunito-Regular',
-                color: '#666',
-                textAlign: 'center',
-                marginVertical: 20,
-              }}>
-                No similar items found
-              </Text>
-            )}
-          </View>
+            </View>
+          )}
+
+          <View style={{height: hp(5)}} />
         </View>
       </ImageBackground>
     </ScrollView>
   );
 };
 
+export default SingleItemPage;
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     width: wp(100),
-    height: hp(100),
     backgroundColor: '#E6F3F5',
   },
+  vector: {
+    flex: 1,
+    width: wp(100),
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#E6F3F5',
+    gap: hp(1.5),
+  },
+  loadingText: {
+    fontFamily: 'Nunito-Regular',
+    fontSize: hp(2),
+    color: '#524B6B',
+  },
+
+  // ── Header ──
   header: {
     width: wp(100),
     height: hp(7),
@@ -525,9 +592,83 @@ const styles = StyleSheet.create({
     textAlign: 'left',
     color: '#0D0140',
   },
-  vector: {
-    flex: 1,
-    width: wp(100),
+  shareButton: {
+    padding: 4,
+  },
+
+  // ── Main image ──
+  mainImageContainer: {
+    width: '90%',
+    height: hp(27),
+    marginHorizontal: '5%',
+    borderRadius: 10,
+    marginVertical: '5%',
+    overflow: 'hidden',
+  },
+  mainImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 10,
+  },
+
+  // ── Inner / Outer toggle ──
+  imageToggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: hp(1.5),
+    gap: 10,
+  },
+  toggleBtn: {
+    paddingHorizontal: wp(7),
+    paddingVertical: hp(0.8),
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#130160',
+  },
+  toggleBtnActive: {
+    backgroundColor: '#130160',
+  },
+  toggleBtnText: {
+    fontFamily: 'Nunito-SemiBold',
+    fontSize: hp(1.8),
+    color: '#130160',
+  },
+  toggleBtnTextActive: {
+    color: '#fff',
+  },
+
+  contentContainer: {
+    paddingHorizontal: '5%',
+  },
+
+  // ── Price ──
+  priceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: '1%',
+    marginTop: '3.5%',
+    gap: 8,
+  },
+  originalPrice: {
+    fontFamily: 'Nunito-Regular',
+    fontSize: 16,
+    textDecorationLine: 'line-through',
+    color: '#666',
+  },
+  discountedPrice: {
+    fontFamily: 'Nunito-Bold',
+    fontSize: 18,
+    color: '#000',
+  },
+  discount: {
+    fontFamily: 'Nunito-Bold',
+    fontSize: 14,
+    color: '#e63946',
+  },
+
+  // ── Details ──
+  detailsContainer: {
+    marginVertical: '6%',
   },
   title: {
     fontFamily: 'Nunito-Bold',
@@ -535,63 +676,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     color: 'black',
   },
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  ratingText: {
-    fontFamily: 'Nunito-Regular',
-    marginLeft: 8,
-    color: '#666',
-  },
-  priceContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: '1%',
-    marginTop: '3.5%',
-  },
-  originalPrice: {
-    fontFamily: 'Nunito-Regular',
-    fontSize: 16,
-    textDecorationLine: 'line-through',
-    color: '#666',
-    marginRight: 8,
-  },
-  discountedPrice: {
-    fontFamily: 'Nunito-Bold',
-    fontSize: 18,
-    color: '#000',
-    marginRight: 8,
-  },
-  discount: {
-    fontFamily: 'Nunito-Bold',
-    fontSize: 14,
-    color: '#e63946',
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  button: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f1f3f4',
-    borderRadius: 4,
-    flex: 1,
-    marginHorizontal: '2%',
-    elevation: 2,
-    height: hp(7),
-    marginVertical: '5%',
-  },
-  buttonText: {
-    fontFamily: 'Nunito-SemiBold',
-    marginLeft: 4,
-    color: '#000',
-  },
-  detailsContainer: {
-    marginVertical: '6%',
+  itemDetailsContainer: {
+    marginVertical: '1%',
   },
   detailsTitle: {
     fontFamily: 'Nunito-Bold',
@@ -603,8 +689,118 @@ const styles = StyleSheet.create({
     fontFamily: 'Nunito-Regular',
     fontSize: hp(1.8),
     color: '#666',
-    lineHeight: hp(2.5),
+  },
+  itemMetaContainer: {
+    marginTop: hp(1.5),
+  },
+  metaText: {
+    fontFamily: 'Nunito-Bold',
+    fontSize: hp(2),
+    color: '#000',
+    marginBottom: 4,
+  },
+  metaValue: {
+    fontFamily: 'Nunito-SemiBold',
+    fontSize: hp(1.7),
+    color: '#666',
+  },
+  statusBadge: {
+    alignSelf: 'flex-start',
+    borderRadius: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    marginTop: 8,
+  },
+  statusText: {
+    fontFamily: 'Nunito-SemiBold',
+    fontSize: 12,
+    textTransform: 'capitalize',
+  },
+
+  // ── Action buttons ──
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginVertical: '5%',
+  },
+  button: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f1f3f4',
+    borderRadius: 4,
+    flex: 1,
+    marginHorizontal: '2%',
+    elevation: 2,
+    height: hp(7),
+    gap: 4,
+  },
+  buttonText: {
+    fontFamily: 'Nunito-SemiBold',
+    color: '#000',
+    marginLeft: 4,
+  },
+
+  // ── Similar items ──
+  similarItemsSection: {
+    marginVertical: '3%',
+  },
+  similarItemsTitle: {
+    fontFamily: 'Nunito-Bold',
+    fontSize: hp(2.3),
+    color: '#000000',
+    marginVertical: '5%',
+  },
+  similarItemsContainer: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+  },
+  similarItemContainer: {
+    width: wp(45),
+    height: hp(22),
+    alignItems: 'center',
+    marginVertical: '1%',
+  },
+  similarItemCard: {
+    width: wp(43),
+    height: hp(22),
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#e6e6e6',
+    backgroundColor: '#fff',
+  },
+  similarItemImage: {
+    width: wp(42.5),
+    height: hp(13),
+    borderRadius: 5,
+  },
+  similarItemDescriptionContainer: {
+    paddingHorizontal: '3%',
+    marginTop: '2%',
+  },
+  similarItemDescription: {
+    fontFamily: 'Nunito-SemiBold',
+    color: '#000',
+    fontSize: hp(1.5),
+  },
+  similarItemPriceContainer: {
+    position: 'absolute',
+    bottom: '2%',
+    paddingHorizontal: '3%',
+  },
+  similarItemDiscountPrice: {
+    fontFamily: 'Nunito-Bold',
+    color: '#000',
+    fontSize: hp(1.8),
+  },
+  similarItemPriceText: {
+    color: 'red',
+  },
+  similarItemOriginalPrice: {
+    fontFamily: 'Nunito-Bold',
+    color: '#808488',
+    fontSize: hp(1.8),
+    textDecorationLine: 'line-through',
   },
 });
-
-export default SingleItemPage;
