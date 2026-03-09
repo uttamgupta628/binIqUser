@@ -81,32 +81,44 @@ const TIERS = [
   },
 ];
 
+const TIER_ORDER = { free: 0, tier1: 1, tier2: 2, tier3: 3 };
 const TIER_AMOUNTS = { tier1: 2900, tier2: 5900, tier3: 9900 };
-
-// ✅ Match the IP from apiService.js
 const API_BASE_URL = 'http://10.218.181.46:3001';
 
 const SelectPremiumPlan = ({ navigation, route }) => {
-  const [activeTab, setActiveTab] = useState(0);
+  const { userData, selectedPlan, isUpgrade = false, currentPlan = 'free' } = route?.params || {};
+
+  // ✅ For upgrades: start tab on the next tier above current
+  const getDefaultTab = () => {
+    if (!isUpgrade) return 0;
+    const currentOrder = TIER_ORDER[currentPlan] ?? 0;
+    const nextIndex = TIERS.findIndex(t => TIER_ORDER[t.id] > currentOrder);
+    return nextIndex >= 0 ? nextIndex : 0;
+  };
+
+  const [activeTab, setActiveTab] = useState(getDefaultTab());
   const [loading, setLoading] = useState(false);
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const selectedTier = TIERS[activeTab];
-  const { userData } = route?.params || {};
+
+  // ✅ For upgrades: disable tabs for current plan and below
+  const isTabDisabled = (tier) => {
+    if (!isUpgrade) return false;
+    return TIER_ORDER[tier.id] <= TIER_ORDER[currentPlan];
+  };
 
   const handleSubscribe = async () => {
     try {
       setLoading(true);
 
-      // Step 1: Get auth token
       const token = await AsyncStorage.getItem('authToken');
-      console.log('Token found:', !!token);
       if (!token) {
-        Alert.alert('Session Error', 'Please try registering again.');
-        navigation.navigate('SelectPlan');
+        Alert.alert('Session Error', 'Please log in again.');
+        navigation.navigate('Login');
         return;
       }
 
-      // Step 2: Create PaymentIntent
+      // Create PaymentIntent
       const response = await fetch(
         `${API_BASE_URL}/api/payments/create-payment-intent`,
         {
@@ -124,19 +136,15 @@ const SelectPremiumPlan = ({ navigation, route }) => {
       );
 
       const data = await response.json();
-      console.log('PaymentIntent response:', JSON.stringify(data));
-
       if (!data.success || !data.clientSecret) {
         throw new Error(data.message || 'Failed to create payment intent');
       }
 
-      // Step 3: Init Stripe Payment Sheet
+      // Init Stripe sheet
       const { error: initError } = await initPaymentSheet({
         merchantDisplayName: 'BinIQ',
         paymentIntentClientSecret: data.clientSecret,
-        appearance: {
-          colors: { primary: selectedTier.color },
-        },
+        appearance: { colors: { primary: selectedTier.color } },
       });
 
       if (initError) {
@@ -144,9 +152,8 @@ const SelectPremiumPlan = ({ navigation, route }) => {
         return;
       }
 
-      // Step 4: Present Stripe Payment Sheet (user enters card here)
+      // Present Stripe sheet — user enters card here
       const { error: paymentError } = await presentPaymentSheet();
-
       if (paymentError) {
         if (paymentError.code !== 'Canceled') {
           Alert.alert('Payment Failed', paymentError.message);
@@ -154,7 +161,7 @@ const SelectPremiumPlan = ({ navigation, route }) => {
         return;
       }
 
-      // Step 5: Confirm subscription on backend
+      // Confirm on backend
       const confirmResponse = await fetch(
         `${API_BASE_URL}/api/payments/confirm-verification`,
         {
@@ -171,16 +178,16 @@ const SelectPremiumPlan = ({ navigation, route }) => {
       );
 
       const confirmData = await confirmResponse.json();
-      console.log('Confirm response:', JSON.stringify(confirmData));
-
       if (!confirmData.success) {
         throw new Error(confirmData.message || 'Subscription confirmation failed');
       }
 
-      // Step 6: ✅ Success → go directly to Home
+      // ✅ Success — different message for upgrade vs new
       Alert.alert(
-        '🎉 Welcome to Premium!',
-        `You are now on ${selectedTier.label}. Enjoy your benefits!`,
+        isUpgrade ? '🎉 Plan Upgraded!' : '🎉 Welcome to Premium!',
+        isUpgrade
+          ? `You've upgraded to ${selectedTier.label}. Your new benefits are active!`
+          : `You are now on ${selectedTier.label}. Enjoy your benefits!`,
         [{
           text: 'Get Started',
           onPress: () => navigation.replace('HomeNavigataor'),
@@ -203,26 +210,50 @@ const SelectPremiumPlan = ({ navigation, route }) => {
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Text style={styles.backArrow}>{'<'}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Premium Plans</Text>
+        <Text style={styles.headerTitle}>
+          {isUpgrade ? 'Upgrade Plan' : 'Premium Plans'}
+        </Text>
         <View style={{ width: 38 }} />
       </View>
 
       <View style={styles.titleBlock}>
-        <Text style={styles.title}>Choose Your Tier</Text>
-        <Text style={styles.subtitle}>Select the plan that fits your hustle</Text>
+        <Text style={styles.title}>
+          {isUpgrade ? 'Choose Your New Tier' : 'Choose Your Tier'}
+        </Text>
+        <Text style={styles.subtitle}>
+          {isUpgrade
+            ? `Currently on ${currentPlan === 'free' ? 'Free Plan' : currentPlan.toUpperCase()} — select a higher tier`
+            : 'Select the plan that fits your hustle'}
+        </Text>
       </View>
 
+      {/* ✅ Tab row — disabled tabs are grayed out for upgrades */}
       <View style={styles.tabRow}>
-        {TIERS.map((tier, idx) => (
-          <TouchableOpacity
-            key={tier.id}
-            style={[styles.tab, activeTab === idx && { backgroundColor: tier.color }]}
-            onPress={() => setActiveTab(idx)}>
-            <Text style={[styles.tabText, activeTab === idx && styles.tabTextActive]}>
-              {tier.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        {TIERS.map((tier, idx) => {
+          const disabled = isTabDisabled(tier);
+          return (
+            <TouchableOpacity
+              key={tier.id}
+              disabled={disabled}
+              style={[
+                styles.tab,
+                activeTab === idx && { backgroundColor: tier.color },
+                disabled && styles.tabDisabled,
+              ]}
+              onPress={() => setActiveTab(idx)}>
+              <Text style={[
+                styles.tabText,
+                activeTab === idx && styles.tabTextActive,
+                disabled && styles.tabTextDisabled,
+              ]}>
+                {tier.label}
+              </Text>
+              {disabled && (
+                <Text style={styles.tabCurrentLabel}>current</Text>
+              )}
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       <View style={[styles.priceBadge, { backgroundColor: selectedTier.color + '18' }]}>
@@ -257,7 +288,7 @@ const SelectPremiumPlan = ({ navigation, route }) => {
             <ActivityIndicator color="#fff" />
           ) : (
             <Text style={styles.subscribeBtnText}>
-              Subscribe — {selectedTier.price}
+              {isUpgrade ? `Upgrade to ${selectedTier.label} — ${selectedTier.price}` : `Subscribe — ${selectedTier.price}`}
             </Text>
           )}
         </TouchableOpacity>
@@ -288,8 +319,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F3F3', borderRadius: 12, padding: 4,
   },
   tab: { flex: 1, paddingVertical: hp(1.2), borderRadius: 10, alignItems: 'center' },
+  tabDisabled: { opacity: 0.35 },
   tabText: { fontSize: hp(1.8), color: '#888' },
   tabTextActive: { color: '#fff' },
+  tabTextDisabled: { color: '#bbb' },
+  tabCurrentLabel: { fontSize: hp(1.1), color: '#aaa', marginTop: 1 },
   priceBadge: {
     marginHorizontal: wp(5), marginTop: hp(2), borderRadius: 12,
     padding: hp(1.5), flexDirection: 'row', alignItems: 'baseline',
