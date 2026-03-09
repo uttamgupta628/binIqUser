@@ -1,12 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Base API URL
-<<<<<<< HEAD
-const API_BASE_URL = 'http://10.218.181.137:3001';
-=======
-// const API_BASE_URL = 'http://10.45.4.75:3001';
-const API_BASE_URL = 'https://biniq.onrender.com';
->>>>>>> d33bdc404ce1e3021127c556d54073ce9e55027f
+const API_BASE_URL = 'http://10.218.181.46:3001';
 
 // API Configuration
 const API_CONFIG = {
@@ -212,7 +207,13 @@ const API_ENDPOINTS = {
  * Authentication API calls
  */
 export const authAPI = {
-  register: data => apiService.post(API_ENDPOINTS.auth.register, data),
+  register: async data => {
+  const response = await apiService.post(API_ENDPOINTS.auth.register, data);
+  if (response.token) {
+    await setAuthToken(response.token); 
+  }
+  return response;
+},
   login: async data => {
     const response = await apiService.post(API_ENDPOINTS.auth.login, data);
     if (response.token) {

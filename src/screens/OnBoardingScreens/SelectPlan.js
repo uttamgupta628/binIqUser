@@ -1,15 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  Image,
-  StyleSheet,
-  Dimensions,
-  TouchableOpacity,
-  StatusBar,
-  ImageBackground,
-  Pressable,
-  Alert,
+  View, Text, Image, StyleSheet, TouchableOpacity,
+  StatusBar, ImageBackground, Pressable, Alert,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import {
@@ -27,14 +19,8 @@ const SelectPlan = ({ navigation }) => {
       Alert.alert('No Plan Selected', 'Please select a plan to continue.');
       return;
     }
-
-    if (selectPlan === 'free') {
-      // Free plan → go directly to SignUp
-      navigation.navigate('SignUp', { selectedPlan: 'free' });
-    } else {
-      // Premium → go to tier selection screen
-      navigation.navigate('SelectPremiumPlan');
-    }
+    // Both free and premium go to SignUp first
+    navigation.navigate('SignUp', { selectedPlan: selectPlan });
   };
 
   return (
@@ -120,9 +106,7 @@ const SelectPlan = ({ navigation }) => {
         </View>
 
         <TouchableOpacity style={styles.gettingStarted} onPress={handleSelectPlan}>
-          <Text style={styles.gettingStartedText}>
-            {selectPlan === 'premium' ? 'Choose Tier →' : 'Select Plan'}
-          </Text>
+          <Text style={styles.gettingStartedText}>Continue →</Text>
         </TouchableOpacity>
 
       </ImageBackground>
@@ -133,7 +117,6 @@ const SelectPlan = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   vector: { flex: 1, width: wp(100), height: hp(100) },
-
   logoHeader: {
     position: 'absolute',
     zIndex: 1,
@@ -143,7 +126,6 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   logo: { marginTop: hp(7), width: wp(28), height: hp(5) },
-
   heading: {
     fontFamily: 'Nunito-Bold',
     fontSize: hp(3.6),
@@ -154,7 +136,6 @@ const styles = StyleSheet.create({
     fontSize: hp(2),
     color: '#524B6B',
   },
-
   planRow: {
     height: hp(28),
     width: '100%',
@@ -203,7 +184,6 @@ const styles = StyleSheet.create({
     color: '#14BA9C',
     fontSize: wp(3.5),
   },
-
   gettingStarted: {
     position: 'absolute',
     backgroundColor: '#130160',
