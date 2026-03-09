@@ -16,7 +16,7 @@ import {
   widthPercentageToDP as wp,
   heightPercentageToDP as hp,
 } from 'react-native-responsive-screen';
-import React, {useState, useEffect, useCallback} from 'react';
+import React, {useState, useEffect, useCallback, useRef} from 'react';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -33,12 +33,16 @@ import BoldTick from '../../../assets/bold_tick.svg';
 import GreenTick from '../../../assets/green_tick.svg';
 import {Alert} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {storesAPI, userAPI} from '../../api/apiService';
-
-// ─── TODO: Replace BASE_URL with your actual API base URL ─────
-const BASE_URL = 'https://biniq.onrender.com/api';
+import {
+  storesAPI,
+  userAPI,
+  productsAPI,
+  subscriptionsAPI,
+} from '../../api/apiService';
 
 const {width} = Dimensions.get('window');
+
+const TRENDING_LIKE_THRESHOLD = 5;
 
 // ─── Static fallbacks ──────────────────────────────────────────
 const STORE_FALLBACK = require('../../../assets/flip_find.png');
@@ -52,6 +56,14 @@ const SOCIAL_PLATFORMS = [
   {fieldKey: 'twitter_link', Icon: TwitterIcon},
   {fieldKey: 'whatsapp_link', Icon: WhatsappIcon},
 ];
+
+const resolveUserId = val => {
+  if (!val) return null;
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object')
+    return val._id?.toString() || val.id?.toString() || null;
+  return null;
+};
 
 // ─── SmartImage ────────────────────────────────────────────────
 const SmartImage = ({uri, fallback, style, resizeMode = 'cover'}) => {
@@ -69,12 +81,12 @@ const SmartImage = ({uri, fallback, style, resizeMode = 'cover'}) => {
   return <Image source={fallback} style={style} resizeMode={resizeMode} />;
 };
 
-// ─── normaliseProduct ──────────────────────────────────────────
-// Keeps all raw API fields so SingleItemPage can consume them
-// without needing an extra network round-trip.
+// ─────────────────────────────────────────────────────────────────────────────
+// normaliseProduct
+// ─────────────────────────────────────────────────────────────────────────────
 const normaliseProduct = item => ({
-  // UI display fields used by BinStorePage cards
   id: item._id || item.id,
+  _id: item._id || item.id,
   image: item.image_inner
     ? {uri: item.image_inner}
     : item.image && typeof item.image === 'string'
@@ -88,8 +100,6 @@ const normaliseProduct = item => ({
     item.offer_price && item.price
       ? `${100 - Math.round((item.offer_price / item.price) * 100)}% off`
       : '',
-  // Raw fields forwarded to SingleItemPage
-  _id: item._id || item.id,
   product_image: item.image_inner || item.image || null,
   price: item.offer_price || item.price || 0,
   original_price: item.price || null,
@@ -99,23 +109,22 @@ const normaliseProduct = item => ({
   upc_id: item.upc_id || null,
   tags: item.tags || [],
   status: item.status || null,
+  type: item.type || 2,
+  likes: typeof item.likes === 'number' ? item.likes : 0,
+  liked_by: Array.isArray(item.liked_by) ? item.liked_by.map(String) : [],
+  isLikedByMe: false,
 });
 
 // ─── normalisePromotion ────────────────────────────────────────
-// For promotions we navigate to SingleItemPage using the
-// promotion's linked product_id (if present) OR fall back to
-// treating the promotion itself as a displayable item.
 const normalisePromotion = item => ({
   id: item._id || item.id,
   _id: item._id || item.id,
-  // product_id links the promo to an actual product
   product_id: item.product_id || null,
   image: item.banner_image
     ? {uri: item.banner_image}
     : item.image && typeof item.image === 'string'
     ? {uri: item.image}
     : item.image || null,
-  // raw image string for SingleItemPage
   product_image: item.banner_image || item.image || null,
   title: item.title || item.name,
   description: item.description || '',
@@ -132,26 +141,7 @@ const normalisePromotion = item => ({
   upc_id: item.upc_id || null,
 });
 
-// ─── fetchWithAuth ─────────────────────────────────────────────
-const fetchWithAuth = async endpoint => {
-  const token = await AsyncStorage.getItem('authToken');
-  const res = await fetch(`${BASE_URL}${endpoint}`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`${res.status}: ${text}`);
-  }
-  return res.json();
-};
-
 // ─── useDynamicCardHeight ──────────────────────────────────────
-// Tracks the tallest card in a horizontal list so all cards
-// render at the same height once measured.
 const useDynamicCardHeight = () => {
   const [cardHeight, setCardHeight] = useState(null);
   const onCardLayout = useCallback(event => {
@@ -161,7 +151,9 @@ const useDynamicCardHeight = () => {
   return {cardHeight, onCardLayout};
 };
 
-// ─── TrendingCard ──────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// TrendingCard
+// ─────────────────────────────────────────────────────────────────────────────
 const TrendingCard = ({item, onPress, cardHeight, onCardLayout}) => (
   <Pressable style={styles.favouritePressable} onPress={onPress}>
     <View
@@ -174,11 +166,6 @@ const TrendingCard = ({item, onPress, cardHeight, onCardLayout}) => (
           resizeMode="cover"
         />
       </View>
-      <Pressable style={styles.trendingHeart}>
-        <View style={styles.heartBg}>
-          <Ionicons name="heart-outline" size={hp(2.2)} color="#EE2525" />
-        </View>
-      </Pressable>
       <View style={styles.favouriteDescriptionContainer}>
         <Text style={styles.favouriteDescription} numberOfLines={2}>
           {item.description}
@@ -198,36 +185,66 @@ const TrendingCard = ({item, onPress, cardHeight, onCardLayout}) => (
   </Pressable>
 );
 
-// ─── ActivityCard ──────────────────────────────────────────────
-const ActivityCard = ({item, onPress, cardHeight, onCardLayout}) => (
-  <Pressable style={styles.favouritePressable} onPress={onPress}>
-    <View
-      style={[styles.favouriteCard, cardHeight ? {height: cardHeight} : {}]}
-      onLayout={onCardLayout}>
-      <View style={styles.imageWrapper}>
-        <Image
-          source={item.image || PLACEHOLDER}
-          style={styles.favouriteImage}
-          resizeMode="cover"
-        />
-      </View>
-      <View style={styles.favouriteDescriptionContainer}>
-        <Text style={styles.favouriteDescription} numberOfLines={2}>
-          {item.description}
-        </Text>
-        <Text style={styles.favouriteDiscountPrice}>{item.discountPrice}</Text>
-        {item.originalPrice && (
-          <Text style={styles.favouritePriceText}>
-            <Text style={styles.favouriteOriginalPrice}>
-              {item.originalPrice}
+// ─────────────────────────────────────────────────────────────────────────────
+// ActivityCard
+// ─────────────────────────────────────────────────────────────────────────────
+const ActivityCard = React.memo(
+  ({item, onPress, cardHeight, onCardLayout, onLike, likingIds}) => {
+    const isBusy = likingIds.has(item._id);
+    const isTrending = item.likes >= TRENDING_LIKE_THRESHOLD;
+
+    return (
+      <Pressable style={styles.favouritePressable} onPress={onPress}>
+        <View
+          style={[styles.favouriteCard, cardHeight ? {height: cardHeight} : {}]}
+          onLayout={onCardLayout}>
+          <View style={styles.imageWrapper}>
+            <Image
+              source={item.image || PLACEHOLDER}
+              style={styles.favouriteImage}
+              resizeMode="cover"
+            />
+            {isTrending && (
+              <View style={styles.trendingBadge}>
+                <Text style={styles.trendingBadgeText}>Trending</Text>
+              </View>
+            )}
+          </View>
+
+          <Pressable
+            style={[styles.activityHeart, isBusy && {opacity: 0.5}]}
+            onPress={() => !isBusy && onLike(item._id)}
+            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+            <View style={styles.heartBg}>
+              <Ionicons
+                name={item.isLikedByMe ? 'heart' : 'heart-outline'}
+                size={hp(2.2)}
+                color="#EE2525"
+              />
+            </View>
+          </Pressable>
+
+          <View style={styles.favouriteDescriptionContainer}>
+            <Text style={styles.favouriteDescription} numberOfLines={2}>
+              {item.description}
             </Text>
-            {'  '}
-            {item.totalDiscount}
-          </Text>
-        )}
-      </View>
-    </View>
-  </Pressable>
+            <Text style={styles.favouriteDiscountPrice}>
+              {item.discountPrice}
+            </Text>
+            {item.originalPrice && (
+              <Text style={styles.favouritePriceText}>
+                <Text style={styles.favouriteOriginalPrice}>
+                  {item.originalPrice}
+                </Text>
+                {'  '}
+                {item.totalDiscount}
+              </Text>
+            )}
+          </View>
+        </View>
+      </Pressable>
+    );
+  },
 );
 
 // ─── PromoCard ─────────────────────────────────────────────────
@@ -303,19 +320,26 @@ const EmptyRow = ({message}) => (
 const BinStorePage = () => {
   const navigation = useNavigation();
   const route = useRoute();
-
   const store = route.params?.store || {};
 
   const [activeSlide, setActiveSlide] = useState(0);
   const [activeStore, setActiveStore] = useState(store);
 
-  const [likes, setLikes] = useState(parseInt(store.likes) || 0);
-  const [isLiked, setIsLiked] = useState(false);
+  const [storeLikes, setStoreLikes] = useState(parseInt(store.likes) || 0);
+  const [isStoreLiked, setIsStoreLiked] = useState(false);
   const [followers, setFollowers] = useState(parseInt(store.followers) || 0);
   const [isFollowing, setIsFollowing] = useState(false);
   const [isCheckedIn, setIsCheckedIn] = useState(false);
 
-  // ── Sections ──
+  // ── Verify My Bin ──────────────────────────────────────────────────────────
+  const [isBinVerified, setIsBinVerified] = useState(false);
+  const [isLoadingVerification, setIsLoadingVerification] = useState(false);
+
+  // ── Resolved once from /api/users/profile ─────────────────────────────────
+  const currentUserIdRef = useRef(null);
+  const [currentUserId, setCurrentUserId] = useState(null);
+
+  // ── Sections ───────────────────────────────────────────────────────────────
   const [trendingProducts, setTrendingProducts] = useState([]);
   const [activityFeed, setActivityFeed] = useState([]);
   const [promotions, setPromotions] = useState([]);
@@ -324,9 +348,9 @@ const BinStorePage = () => {
   const [isLoadingActivity, setIsLoadingActivity] = useState(true);
   const [isLoadingPromotions, setIsLoadingPromotions] = useState(true);
 
+  const [likingIds, setLikingIds] = useState(new Set());
   const [activeTab, setActiveTab] = useState('trending');
 
-  // ── Dynamic card heights — one per list ──
   const {cardHeight: trendingCardHeight, onCardLayout: onTrendingCardLayout} =
     useDynamicCardHeight();
   const {cardHeight: activityCardHeight, onCardLayout: onActivityCardLayout} =
@@ -337,80 +361,128 @@ const BinStorePage = () => {
   useEffect(() => {
     if (!store._id) return;
     loadStoreAndUser();
-    loadTrendingProducts();
-    loadActivityFeed();
-    loadPromotions();
   }, [store._id]);
 
-  // ─── Loaders ───────────────────────────────────────────────────
+  // ─── Helper: stamp isLikedByMe onto every item ────────────────────────────
+  const stampLikes = useCallback(
+    (items, uid) =>
+      items.map(item => ({
+        ...item,
+        isLikedByMe: uid ? item.liked_by.includes(uid) : false,
+      })),
+    [],
+  );
+
+  // ─── Check if the store owner has an active subscription ──────────────────
+  const checkBinVerification = async storeOwnerId => {
+    if (!storeOwnerId) return;
+    setIsLoadingVerification(true);
+    try {
+      const result = await subscriptionsAPI.verifyStoreOwner(storeOwnerId);
+      setIsBinVerified(result?.verified === true);
+    } catch (e) {
+      // 400 "User is not a store owner" is an expected case — not an error
+      const isExpected = e?.status === 400 || e?.data?.verified === false;
+      if (!isExpected) {
+        console.warn('checkBinVerification unexpected error:', e?.message ?? e);
+      }
+      setIsBinVerified(false);
+    } finally {
+      setIsLoadingVerification(false);
+    }
+  };
+
+  // ─── Loaders ──────────────────────────────────────────────────────────────
   const loadStoreAndUser = async () => {
     try {
       const [details, userProfile] = await Promise.all([
         storesAPI.getDetails(store._id),
         userAPI.getProfile(),
       ]);
+
       if (details) {
         setActiveStore(details);
-        setLikes(details.likes || 0);
+        setStoreLikes(details.likes || 0);
         setFollowers(details.followers || 0);
+
         const uid = userProfile?._id?.toString();
-        setIsLiked(!!details.liked_by?.some(id => id.toString() === uid));
+        currentUserIdRef.current = uid;
+        setCurrentUserId(uid);
+
+        setIsStoreLiked(!!details.liked_by?.some(id => id.toString() === uid));
         setIsFollowing(
           !!details.followed_by?.some(id => id.toString() === uid),
         );
         setIsCheckedIn(
           !!details.checked_in_by?.some(id => id.toString() === uid),
         );
+
+        const confirmedUserId =
+          resolveUserId(details.user_id) || details._id?.toString();
+
+        loadTrendingProducts(confirmedUserId);
+        loadActivityFeed(confirmedUserId, uid);
+        loadPromotions(confirmedUserId);
+
+        // ── Check subscription verification for this store owner ──────────
+        checkBinVerification(confirmedUserId);
       }
     } catch (e) {
       console.error('BinStorePage loadStoreAndUser:', e);
     }
   };
 
-  const loadTrendingProducts = async () => {
+  const loadTrendingProducts = async userId => {
     setIsLoadingTrending(true);
     try {
-      const storeUserId = store.user_id?.toString();
-      const endpoint = storeUserId
-        ? `/products/trending?user_id=${storeUserId}`
-        : '/products/trending';
-      const res = await fetchWithAuth(endpoint);
+      const token = await AsyncStorage.getItem('authToken');
+      const url = `https://biniq.onrender.com/api/products/trending${
+        userId ? `?user_id=${userId}` : ''
+      }`;
+      const res = await fetch(url, {
+        headers: {Authorization: `Bearer ${token}`},
+      }).then(r => r.json());
       const raw = Array.isArray(res) ? res : res?.data ?? res?.products ?? [];
       setTrendingProducts(raw.map(normaliseProduct));
     } catch (e) {
-      console.error('BinStorePage loadTrendingProducts:', e);
+      console.error('loadTrendingProducts:', e);
       setTrendingProducts([]);
     } finally {
       setIsLoadingTrending(false);
     }
   };
 
-  const loadActivityFeed = async () => {
+  const loadActivityFeed = async (userId, uid) => {
     setIsLoadingActivity(true);
     try {
-      const storeUserId = store.user_id?.toString();
-      const endpoint = storeUserId
-        ? `/products/activity?user_id=${storeUserId}`
-        : '/products/activity';
-      const res = await fetchWithAuth(endpoint);
+      const token = await AsyncStorage.getItem('authToken');
+      const url = `https://biniq.onrender.com/api/products/activity${
+        userId ? `?user_id=${userId}` : ''
+      }`;
+      const res = await fetch(url, {
+        headers: {Authorization: `Bearer ${token}`},
+      }).then(r => r.json());
       const raw = Array.isArray(res) ? res : res?.data ?? res?.products ?? [];
-      setActivityFeed(raw.map(normaliseProduct));
+      const normalised = raw.map(normaliseProduct);
+      setActivityFeed(stampLikes(normalised, uid));
     } catch (e) {
-      console.error('BinStorePage loadActivityFeed:', e);
+      console.error('loadActivityFeed:', e);
       setActivityFeed([]);
     } finally {
       setIsLoadingActivity(false);
     }
   };
 
-  const loadPromotions = async () => {
+  const loadPromotions = async userId => {
     setIsLoadingPromotions(true);
     try {
-      const storeUserId = store.user_id?.toString();
-      const endpoint = storeUserId
-        ? `/promotions?user_id=${storeUserId}`
-        : '/promotions';
-      const res = await fetchWithAuth(endpoint);
+      const token = await AsyncStorage.getItem('authToken');
+      const url = `https://biniq.onrender.com/api/promotions${
+        userId ? `?user_id=${userId}` : ''
+      }`;
+      const res = await fetch(url, {
+        headers: {Authorization: `Bearer ${token}`},
+      }).then(r => r.json());
       const raw =
         res?.data ??
         res?.results ??
@@ -418,23 +490,94 @@ const BinStorePage = () => {
         (Array.isArray(res) ? res : []);
       setPromotions(raw.map(normalisePromotion));
     } catch (e) {
-      console.error('BinStorePage loadPromotions:', e);
+      console.error('loadPromotions:', e);
       setPromotions([]);
     } finally {
       setIsLoadingPromotions(false);
     }
   };
 
-  // ─── Interactions ──────────────────────────────────────────────
-  const handleLike = async () => {
-    const prev = {liked: isLiked, count: likes};
-    setIsLiked(!isLiked);
-    setLikes(n => (isLiked ? Math.max(0, n - 1) : n + 1));
+  // ─── handleProductLike ────────────────────────────────────────────────────
+  const handleProductLike = useCallback(
+    async productId => {
+      const uid = currentUserIdRef.current;
+      if (!uid) return;
+      if (likingIds.has(productId)) return;
+
+      setLikingIds(prev => new Set([...prev, productId]));
+
+      let snapshot = null;
+
+      setActivityFeed(prev =>
+        prev.map(item => {
+          if (item._id !== productId) return item;
+          snapshot = item;
+          const willLike = !item.isLikedByMe;
+          return {
+            ...item,
+            isLikedByMe: willLike,
+            likes: willLike ? item.likes + 1 : Math.max(0, item.likes - 1),
+            liked_by: willLike
+              ? [...item.liked_by, uid]
+              : item.liked_by.filter(id => id !== uid),
+          };
+        }),
+      );
+
+      try {
+        const result = await productsAPI.like(productId);
+
+        setActivityFeed(prev =>
+          prev.map(item => {
+            if (item._id !== productId) return item;
+            const updatedLikedBy = result.isLiked
+              ? [...new Set([...item.liked_by, uid])]
+              : item.liked_by.filter(id => id !== uid);
+            return {
+              ...item,
+              isLikedByMe: result.isLiked,
+              likes: result.likes,
+              liked_by: updatedLikedBy,
+              type: result.type ?? item.type,
+            };
+          }),
+        );
+
+        if (result.trending_notice) {
+          const confirmedUserId =
+            resolveUserId(activeStore.user_id) || activeStore._id?.toString();
+          loadTrendingProducts(confirmedUserId);
+          Alert.alert('🔥 Now Trending!', result.trending_notice);
+        }
+      } catch (e) {
+        console.error('handleProductLike error:', e);
+        if (snapshot) {
+          setActivityFeed(prev =>
+            prev.map(item => (item._id === productId ? snapshot : item)),
+          );
+        }
+        Alert.alert('Error', 'Could not update like. Please try again.');
+      } finally {
+        setLikingIds(prev => {
+          const next = new Set(prev);
+          next.delete(productId);
+          return next;
+        });
+      }
+    },
+    [likingIds, activeStore],
+  );
+
+  // ─── Store interactions ────────────────────────────────────────────────────
+  const handleStoreLike = async () => {
+    const prev = {liked: isStoreLiked, count: storeLikes};
+    setIsStoreLiked(!isStoreLiked);
+    setStoreLikes(n => (isStoreLiked ? Math.max(0, n - 1) : n + 1));
     try {
       await storesAPI.like(store._id);
-    } catch (e) {
-      setIsLiked(prev.liked);
-      setLikes(prev.count);
+    } catch {
+      setIsStoreLiked(prev.liked);
+      setStoreLikes(prev.count);
     }
   };
 
@@ -444,7 +587,7 @@ const BinStorePage = () => {
     setFollowers(n => (isFollowing ? Math.max(0, n - 1) : n + 1));
     try {
       await storesAPI.follow(store._id);
-    } catch (e) {
+    } catch {
       setIsFollowing(prev.following);
       setFollowers(prev.count);
     }
@@ -461,7 +604,7 @@ const BinStorePage = () => {
           ? `You have checked out of ${activeStore.store_name}`
           : `You are now checked in at ${activeStore.store_name}`,
       );
-    } catch (e) {
+    } catch {
       setIsCheckedIn(was);
       Alert.alert('Error', 'Check-in failed. Please try again.');
     }
@@ -475,14 +618,7 @@ const BinStorePage = () => {
     );
   };
 
-  // ─── Navigation helpers ────────────────────────────────────────
-  // Product cards (Trending & Activity) → SingleItemPage.
-  // We pass:
-  //   productId   — for the API re-fetch inside SingleItemPage
-  //   initialData — for instant display before the fetch completes
-  //   section     — context label forwarded through similar-item navigation
-  //   data        — the full list so SingleItemPage can build similarItems
-  //                 locally (no extra API call needed, mirrors reference code)
+  // ─── Navigation helpers ────────────────────────────────────────────────────
   const navigateToProduct = (item, sourceList, sectionLabel) => {
     navigation.navigate('SinglePageItem', {
       productId: item._id,
@@ -492,25 +628,13 @@ const BinStorePage = () => {
     });
   };
 
-  // Promotion cards → SingleItemPage.
-  // Uses the promotion's linked product_id when available; otherwise
-  // the promotion's own data is displayed directly.
   const navigateToPromotion = item => {
-    if (item.product_id) {
-      navigation.navigate('SinglePageItem', {
-        productId: item.product_id,
-        initialData: null,
-        section: 'Promotions',
-        data: promotions,
-      });
-    } else {
-      navigation.navigate('SinglePageItem', {
-        productId: item._id,
-        initialData: item,
-        section: 'Promotions',
-        data: promotions,
-      });
-    }
+    navigation.navigate('SinglePageItem', {
+      productId: item.product_id || item._id,
+      initialData: item.product_id ? null : item,
+      section: 'Promotions',
+      data: promotions,
+    });
   };
 
   const fmtCount = n => {
@@ -542,91 +666,82 @@ const BinStorePage = () => {
   const avgRating = activeStore.ratings || 4.0;
   const reviewCount = activeStore.rating_count || 0;
 
-  // ─── Tab render helpers ────────────────────────────────────────
-  const renderTrendingSection = () => (
-    <>
-      {isLoadingTrending ? (
-        <LoadingRow />
-      ) : (
-        <FlatList
-          data={trendingProducts}
-          renderItem={({item}) => (
-            <TrendingCard
-              item={item}
-              cardHeight={trendingCardHeight}
-              onCardLayout={onTrendingCardLayout}
-              onPress={() =>
-                navigateToProduct(item, trendingProducts, 'Trending Products')
-              }
-            />
-          )}
-          keyExtractor={(item, i) => item.id?.toString() || `trending-${i}`}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.hListPad}
-          ListEmptyComponent={
-            <EmptyRow message="No trending products for this store" />
-          }
-        />
-      )}
-    </>
-  );
+  // ─── Tab renderers ─────────────────────────────────────────────────────────
+  const renderTrendingSection = () =>
+    isLoadingTrending ? (
+      <LoadingRow />
+    ) : (
+      <FlatList
+        data={trendingProducts}
+        renderItem={({item}) => (
+          <TrendingCard
+            item={item}
+            cardHeight={trendingCardHeight}
+            onCardLayout={onTrendingCardLayout}
+            onPress={() =>
+              navigateToProduct(item, trendingProducts, 'Trending Products')
+            }
+          />
+        )}
+        keyExtractor={(item, i) => item.id?.toString() || `trending-${i}`}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.hListPad}
+        ListEmptyComponent={
+          <EmptyRow message="No trending products for this store" />
+        }
+      />
+    );
 
-  const renderActivitySection = () => (
-    <>
-      {isLoadingActivity ? (
-        <LoadingRow />
-      ) : (
-        <FlatList
-          data={activityFeed}
-          renderItem={({item}) => (
-            <ActivityCard
-              item={item}
-              cardHeight={activityCardHeight}
-              onCardLayout={onActivityCardLayout}
-              onPress={() =>
-                navigateToProduct(item, activityFeed, 'Activity Feed')
-              }
-            />
-          )}
-          keyExtractor={(item, i) => item.id?.toString() || `activity-${i}`}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.hListPad}
-          ListEmptyComponent={
-            <EmptyRow message="No activity feed items for this store" />
-          }
-        />
-      )}
-    </>
-  );
+  const renderActivitySection = () =>
+    isLoadingActivity ? (
+      <LoadingRow />
+    ) : (
+      <FlatList
+        data={activityFeed}
+        renderItem={({item}) => (
+          <ActivityCard
+            item={item}
+            cardHeight={activityCardHeight}
+            onCardLayout={onActivityCardLayout}
+            onLike={handleProductLike}
+            likingIds={likingIds}
+            onPress={() =>
+              navigateToProduct(item, activityFeed, 'Activity Feed')
+            }
+          />
+        )}
+        keyExtractor={(item, i) => item.id?.toString() || `activity-${i}`}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.hListPad}
+        ListEmptyComponent={
+          <EmptyRow message="No activity feed items for this store" />
+        }
+      />
+    );
 
-  const renderPromotionsSection = () => (
-    <>
-      {isLoadingPromotions ? (
-        <LoadingRow />
-      ) : (
-        <FlatList
-          data={promotions}
-          renderItem={({item}) => (
-            <PromoCard
-              item={item}
-              cardHeight={promoCardHeight}
-              onCardLayout={onPromoCardLayout}
-              onPress={() => navigateToPromotion(item)}
-            />
-          )}
-          keyExtractor={(item, i) => item.id?.toString() || `promo-${i}`}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.hListPad}
-          ListEmptyComponent={
-            <EmptyRow message="No promotions for this store" />
-          }
-        />
-      )}
-    </>
-  );
+  const renderPromotionsSection = () =>
+    isLoadingPromotions ? (
+      <LoadingRow />
+    ) : (
+      <FlatList
+        data={promotions}
+        renderItem={({item}) => (
+          <PromoCard
+            item={item}
+            cardHeight={promoCardHeight}
+            onCardLayout={onPromoCardLayout}
+            onPress={() => navigateToPromotion(item)}
+          />
+        )}
+        keyExtractor={(item, i) => item.id?.toString() || `promo-${i}`}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.hListPad}
+        ListEmptyComponent={<EmptyRow message="No promotions for this store" />}
+      />
+    );
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -642,11 +757,11 @@ const BinStorePage = () => {
             <Text style={styles.headerText}>{storeName}</Text>
           </View>
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
-            <Pressable onPress={handleLike} style={styles.headerHeart}>
+            <Pressable onPress={handleStoreLike} style={styles.headerHeart}>
               <Ionicons
-                name={isLiked ? 'heart' : 'heart-outline'}
+                name={isStoreLiked ? 'heart' : 'heart-outline'}
                 size={hp(3.5)}
-                color={isLiked ? '#EE2525' : '#C4C4C4'}
+                color={isStoreLiked ? '#EE2525' : '#C4C4C4'}
               />
             </Pressable>
             <Pressable>
@@ -672,7 +787,7 @@ const BinStorePage = () => {
               <Text style={styles.storeNameText} numberOfLines={1}>
                 {storeName}
               </Text>
-              <BoldTick width={20} />
+              {isBinVerified && <BoldTick width={20} />}
             </View>
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
@@ -684,7 +799,7 @@ const BinStorePage = () => {
               </View>
               <View style={styles.statItem}>
                 <Text style={styles.statNumber}>
-                  {fmtCount(likes)}
+                  {fmtCount(storeLikes)}
                   {'\n'}
                   <Text style={styles.statLabel}>Likes</Text>
                 </Text>
@@ -718,31 +833,38 @@ const BinStorePage = () => {
             {isCheckedIn ? 'Checked In ✓' : 'Check In'}
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtnGreen}>
-          <GreenTick />
-          <Text style={styles.actionBtnText}>Verify My Bin</Text>
-        </TouchableOpacity>
-      </View>
 
-      {/* ── Rating ── */}
-      <View style={styles.contentHeader}>
-        <Text style={styles.contentTitle}>{storeName.toUpperCase()}</Text>
-        <View style={styles.starsRow}>
-          {[1, 2, 3, 4, 5].map(s => (
-            <FontAwesome
-              key={s}
-              name="star"
-              color={s <= Math.round(avgRating) ? '#FFD700' : '#e6e6e6'}
-              size={15}
-            />
-          ))}
-          {reviewCount > 0 && (
-            <Text style={styles.reviewCountText}>
-              {' '}
-              {reviewCount.toLocaleString()}
-            </Text>
+        {/* ── Verify My Bin ── */}
+        <TouchableOpacity
+          style={[
+            styles.actionBtnVerifyBase,
+            isBinVerified
+              ? styles.actionBtnVerified
+              : styles.actionBtnNotVerified,
+          ]}
+          disabled={isLoadingVerification}
+          activeOpacity={0.85}>
+          {isLoadingVerification ? (
+            <ActivityIndicator size="small" color="#000" />
+          ) : (
+            <>
+              {isBinVerified ? (
+                <GreenTick width={15} height={15} />
+              ) : (
+                <MaterialIcons name="cancel" size={15} color="#FF3B30" />
+              )}
+              <Text
+                style={[
+                  styles.verifyBtnText,
+                  isBinVerified
+                    ? styles.verifiedBtnText
+                    : styles.notVerifiedBtnText,
+                ]}>
+                {isBinVerified ? 'Verified' : 'Not Verified'}
+              </Text>
+            </>
           )}
-        </View>
+        </TouchableOpacity>
       </View>
 
       {/* ── Store Details ── */}
@@ -812,7 +934,7 @@ const BinStorePage = () => {
       <View style={styles.tabRow}>
         {[
           {key: 'trending', label: 'Trending'},
-          {key: 'activity', label: 'Activity Feed'},
+          {key: 'activity', label: 'Items'},
           {key: 'promotions', label: 'Promotions'},
         ].map(tab => (
           <TouchableOpacity
@@ -856,7 +978,7 @@ const BinStorePage = () => {
         {activeTab === 'activity' && (
           <>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Activity Feed</Text>
+              <Text style={styles.sectionTitle}>Items</Text>
               <TouchableOpacity
                 onPress={() =>
                   navigation.navigate('AllProductsScreen', {
@@ -987,9 +1109,41 @@ const styles = StyleSheet.create({
     borderColor: '#00B813',
     borderRadius: 7,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: '5%',
+  },
+  verifyBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  // ── Verify My Bin states ──────────────────────────────────────
+  actionBtnVerifyBase: {
+    width: '48%',
+    borderWidth: 0.8,
+    borderRadius: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  // ── Verify My Bin states ──────────────────────────────────────
+  actionBtnVerified: {
+    backgroundColor: '#E8FBF5',
+    borderColor: '#00B813',
+  },
+  actionBtnNotVerified: {
+    backgroundColor: '#FFF0F0',
+    borderColor: '#FF3B30',
+  },
+  verifiedBtnText: {
+    color: '#00B813',
+    fontFamily: 'Nunito-SemiBold',
+  },
+  notVerifiedBtnText: {
+    color: '#FF3B30',
+    fontFamily: 'Nunito-SemiBold',
   },
   actionBtnText: {
     fontFamily: 'Nunito-SemiBold',
@@ -1106,12 +1260,43 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
   },
   favouriteImage: {width: '100%', height: hp(15)},
-  trendingHeart: {position: 'absolute', right: '3%', top: '2%', zIndex: 10},
+  activityHeart: {
+    position: 'absolute',
+    right: wp(2),
+    top: hp(10),
+    zIndex: 10,
+    alignItems: 'center',
+  },
   heartBg: {
     backgroundColor: '#fff',
     borderRadius: 20,
-    padding: 4,
-    elevation: 2,
+    padding: 5,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 1},
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  likeCountText: {
+    fontFamily: 'Nunito-Bold',
+    fontSize: hp(1.3),
+    color: '#EE2525',
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  trendingBadge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    backgroundColor: '#FF6B00',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  trendingBadgeText: {
+    fontFamily: 'Nunito-Bold',
+    color: '#fff',
+    fontSize: hp(1.2),
   },
   favouriteDescriptionContainer: {padding: wp(2.5)},
   favouriteDescription: {

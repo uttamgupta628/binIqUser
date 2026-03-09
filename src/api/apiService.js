@@ -1,12 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Base API URL
-<<<<<<< HEAD
-const API_BASE_URL = 'http://10.218.181.46:3001';
-=======
-// const API_BASE_URL = 'http://10.45.4.75:3001';
-const API_BASE_URL = 'https://biniq.onrender.com';
->>>>>>> 65e9c97847a828027cbfc365f56a541f84c809d0
+const API_BASE_URL = 'http://10.45.4.75:3001';
+// const API_BASE_URL = 'https://biniq.onrender.com';
 
 // API Configuration
 const API_CONFIG = {
@@ -133,9 +129,9 @@ const API_ENDPOINTS = {
     deleteAccount: `${API_BASE_URL}/api/users/delete-account`,
     approve: `${API_BASE_URL}/api/users/approve`,
     reject: `${API_BASE_URL}/api/users/reject`,
-    scan: `${API_BASE_URL}/api/users/scan`, // ✅ POST - record a scan
-    scans: `${API_BASE_URL}/api/users/scans`, // ✅ GET  - fetch all scans
-    deleteScan: scanId => `${API_BASE_URL}/api/users/scans/${scanId}`, // ✅ DELETE - remove a scan
+    scan: `${API_BASE_URL}/api/users/scan`,
+    scans: `${API_BASE_URL}/api/users/scans`,
+    deleteScan: scanId => `${API_BASE_URL}/api/users/scans/${scanId}`,
   },
   feedback: {
     submit: `${API_BASE_URL}/api/users/feedback`,
@@ -150,6 +146,7 @@ const API_ENDPOINTS = {
     getById: id => `${API_BASE_URL}/api/products/${id}`,
     update: id => `${API_BASE_URL}/api/products/${id}`,
     delete: id => `${API_BASE_URL}/api/products/${id}`,
+    like: id => `${API_BASE_URL}/api/products/${id}/like`, // ✅ NEW
   },
   categories: {
     create: `${API_BASE_URL}/api/categories`,
@@ -183,6 +180,8 @@ const API_ENDPOINTS = {
     getTiers: `${API_BASE_URL}/api/subscriptions/tiers`,
     updateTiers: `${API_BASE_URL}/api/subscriptions/tiers`,
     subscribe: `${API_BASE_URL}/api/subscriptions/subscribe`,
+    verify: storeOwnerId =>
+      `${API_BASE_URL}/api/subscriptions/verify/${storeOwnerId}`,
     getAll: `${API_BASE_URL}/api/subscriptions`,
     cancel: `${API_BASE_URL}/api/subscriptions/cancel`,
   },
@@ -213,12 +212,12 @@ const API_ENDPOINTS = {
  */
 export const authAPI = {
   register: async data => {
-  const response = await apiService.post(API_ENDPOINTS.auth.register, data);
-  if (response.token) {
-    await setAuthToken(response.token); 
-  }
-  return response;
-},
+    const response = await apiService.post(API_ENDPOINTS.auth.register, data);
+    if (response.token) {
+      await setAuthToken(response.token);
+    }
+    return response;
+  },
   login: async data => {
     const response = await apiService.post(API_ENDPOINTS.auth.login, data);
     if (response.token) {
@@ -253,9 +252,7 @@ export const userAPI = {
       console.log('🗑️ Deleting account for user:', userId);
       const response = await apiService.delete(
         API_ENDPOINTS.users.deleteAccount,
-        {
-          user_id: userId,
-        },
+        {user_id: userId},
       );
       console.log('✅ Delete response:', response);
       return response;
@@ -271,10 +268,9 @@ export const userAPI = {
 };
 
 /**
- * Scan API calls  ✅ NEW
+ * Scan API calls
  */
 export const scanAPI = {
-  // POST a new QR scan to the user's library
   recordScan: (qrData, productName, category, image) =>
     apiService.post(API_ENDPOINTS.users.scan, {
       qr_data: qrData,
@@ -282,11 +278,7 @@ export const scanAPI = {
       category: category || 'Uncategorized',
       image: image || null,
     }),
-
-  // GET all scans for the current logged-in user
   getScans: () => apiService.get(API_ENDPOINTS.users.scans),
-
-  // DELETE a specific scan by its scan_id
   deleteScan: scanId =>
     apiService.delete(API_ENDPOINTS.users.deleteScan(scanId)),
 };
@@ -315,6 +307,9 @@ export const productsAPI = {
   getById: id => apiService.get(API_ENDPOINTS.products.getById(id)),
   update: (id, data) => apiService.put(API_ENDPOINTS.products.update(id), data),
   delete: id => apiService.delete(API_ENDPOINTS.products.delete(id)),
+  // ✅ NEW: toggle like on an activity feed product
+  // Returns: { isLiked, likes, type, trending_notice? }
+  like: id => apiService.post(API_ENDPOINTS.products.like(id)),
 };
 
 /**
@@ -333,21 +328,15 @@ export const storesAPI = {
   getAll: params => apiService.get(API_ENDPOINTS.stores.getAll, params),
   getMyStore: () => apiService.get(API_ENDPOINTS.stores.getMyStore),
   update: data => apiService.put(API_ENDPOINTS.stores.update, data),
-
   view: storeId =>
     apiService.post(API_ENDPOINTS.stores.view, {store_id: storeId}),
-
   like: storeId =>
     apiService.post(API_ENDPOINTS.stores.like, {store_id: storeId}),
-
   follow: storeId =>
     apiService.post(API_ENDPOINTS.stores.follow, {store_id: storeId}),
-
   checkIn: storeId =>
     apiService.post(API_ENDPOINTS.stores.checkin, {store_id: storeId}),
-
   getCheckIns: () => apiService.get(API_ENDPOINTS.stores.getCheckIns),
-
   comment: (storeId, comment) =>
     apiService.post(API_ENDPOINTS.stores.comment, {
       store_id: storeId,
@@ -391,6 +380,8 @@ export const subscriptionsAPI = {
       payment_method: paymentMethod,
       billing_details: billingDetails,
     }),
+  verifyStoreOwner: storeOwnerId =>
+    apiService.get(API_ENDPOINTS.subscriptions.verify(storeOwnerId)),
   getAll: () => apiService.get(API_ENDPOINTS.subscriptions.getAll),
   cancel: (subscriptionId, reason, feedback) =>
     apiService.post(API_ENDPOINTS.subscriptions.cancel, {
