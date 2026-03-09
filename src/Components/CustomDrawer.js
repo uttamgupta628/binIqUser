@@ -25,11 +25,25 @@ import { userAPI } from '../api/apiService';
 
 const { width } = Dimensions.get("window")
 
+// ✅ Plan meta for badge colors
+const PLAN_META = {
+  free:  { label: 'Free Plan',  color: '#14BA9C', bg: '#E4F3EE' },
+  tier1: { label: 'Tier 1',     color: '#14BA9C', bg: '#E4F3EE' },
+  tier2: { label: 'Tier 2',     color: '#7B5EA7', bg: '#F3EEF9' },
+  tier3: { label: 'Tier 3',     color: '#E8A020', bg: '#FFF3E0' },
+};
+
+const getPlanKey = (userProfile) => {
+  const sub = userProfile?.subscription;
+  if (!sub) return 'free';
+  if (typeof sub === 'object') return sub.plan || 'free';
+  return 'free';
+};
+
 const CustomDrawer = ({ isOpen, closeDrawer }) => {
   const navigation = useNavigation();
   const translateX = React.useRef(new Animated.Value(-width)).current;
-  
-  // State for user data
+
   const [loading, setLoading] = useState(true);
   const [userProfile, setUserProfile] = useState(null);
 
@@ -41,26 +55,19 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
     }).start()
   }, [isOpen])
 
-  // Fetch user profile when drawer opens
   useEffect(() => {
-    if (isOpen) {
-      fetchUserProfile();
-    }
+    if (isOpen) fetchUserProfile();
   }, [isOpen]);
 
   const fetchUserProfile = async () => {
     try {
       setLoading(true);
       const response = await userAPI.getProfile();
-      console.log('CustomDrawer - User Profile:', response);
-      
       if (response) {
-        const userData = response.user || response;
-        setUserProfile(userData);
+        setUserProfile(response.user || response);
       }
     } catch (err) {
       console.error('Error fetching user profile in drawer:', err);
-      // Don't show alert, just use fallback data
     } finally {
       setLoading(false);
     }
@@ -68,36 +75,21 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
 
   const handleLogout = () => {
     closeDrawer();
-    
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { 
-          text: 'Cancel', 
-          style: 'cancel' 
-        },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Clear auth token
-              await AsyncStorage.removeItem('@auth_token');
-              
-              // Navigate to login
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Login' }],
-              });
-            } catch (err) {
-              console.error('Error during logout:', err);
-              Alert.alert('Error', 'Failed to logout');
-            }
+    Alert.alert('Logout', 'Are you sure you want to logout?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Logout',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await AsyncStorage.removeItem('authToken');
+            navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+          } catch (err) {
+            Alert.alert('Error', 'Failed to logout');
           }
         }
-      ]
-    );
+      }
+    ]);
   };
 
   const handleMenuPress = (screen) => {
@@ -105,14 +97,28 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
     navigation.navigate(screen);
   };
 
+  // ✅ Upgrade / Get Premium handler
+  const handleUpgradePress = () => {
+    closeDrawer();
+    navigation.navigate('SelectPremiumPlan', {
+      isUpgrade: true,
+      currentPlan: getPlanKey(userProfile),
+    });
+  };
+
+  const planKey  = getPlanKey(userProfile);
+  const planMeta = PLAN_META[planKey] ?? PLAN_META.free;
+  const isFree   = planKey === 'free';
+  const isTier3  = planKey === 'tier3';
+
   const menuItems = [
-    { icon: <EditProfile />, label: "Edit Profile", goto: 'EditProfileScreen' },
-    { icon: <Feedback />, label: "Feedback", goto: 'Feedback' },
-    { icon: <ChangePassword />, label: "Change Password", goto: 'ChangePassword' },
-    { icon: <Help />, label: "Help", goto: 'HelpAndSupport' },
-    { icon: <ReferallProgram />, label: "Referral Program", goto: 'ReferFriend' },
-    { icon: <Settings />, label: "Settings", goto: 'SettingsScreen' },
-  ]
+    { icon: <EditProfile />,      label: "Edit Profile",     goto: 'EditProfileScreen' },
+    { icon: <Feedback />,         label: "Feedback",         goto: 'Feedback' },
+    { icon: <ChangePassword />,   label: "Change Password",  goto: 'ChangePassword' },
+    { icon: <Help />,             label: "Help",             goto: 'HelpAndSupport' },
+    { icon: <ReferallProgram />,  label: "Referral Program", goto: 'ReferFriend' },
+    { icon: <Settings />,         label: "Settings",         goto: 'SettingsScreen' },
+  ];
 
   return (
     <Animated.View style={[styles.container, { transform: [{ translateX }] }]}>
@@ -120,7 +126,7 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
         <Ionicons name="close" size={hp(3.4)} color="black" />
       </TouchableOpacity>
 
-      {/* Profile Section */}
+      {/* ── Profile Section ── */}
       <View style={styles.profileSection}>
         {loading ? (
           <View style={styles.loadingContainer}>
@@ -131,8 +137,7 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
           <>
             <TouchableOpacity
               style={styles.profileImageContainer}
-              onPress={() => handleMenuPress('EditProfileScreen')}
-            >
+              onPress={() => handleMenuPress('EditProfileScreen')}>
               <Image
                 source={
                   userProfile?.profile_image
@@ -153,12 +158,12 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
               {userProfile?.email || 'user@email.com'}
             </Text>
 
-            {/* User Stats */}
+            {/* ── Stats ── */}
             {userProfile && (
               <View style={styles.statsContainer}>
                 <View style={styles.statItem}>
                   <Text style={styles.statValue}>
-                    {userProfile.total_scans || 0}
+                    {userProfile.scans_used?.length ?? userProfile.total_scans ?? 0}
                   </Text>
                   <Text style={styles.statLabel}>Scans</Text>
                 </View>
@@ -179,32 +184,53 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
               </View>
             )}
 
-            {/* Subscription Badge */}
-            {userProfile?.subscription && (
-  <View style={styles.subscriptionBadge}>
-    <Ionicons name="star" size={12} color="#FFD700" />
-    <Text style={styles.subscriptionText}>
-      {typeof userProfile.subscription === 'object'
-        ? `${userProfile.subscription.plan?.toUpperCase() ?? 'Premium'} Member`
-        : `${userProfile.subscription} Member`}
-    </Text>
-  </View>
+            {/* ── Current Plan Badge ── */}
+            <View style={[styles.subscriptionBadge, {
+              backgroundColor: planMeta.bg,
+              borderColor: planMeta.color,
+            }]}>
+              <Ionicons
+                name={isFree ? 'leaf-outline' : 'star'}
+                size={12}
+                color={planMeta.color}
+              />
+              <Text style={[styles.subscriptionText, { color: planMeta.color }]}>
+                {planMeta.label}
+              </Text>
+            </View>
+
+            {/* ── Upgrade Button ── */}
+            {!isTier3 && (
+              <TouchableOpacity
+                style={[styles.upgradeBtn, { borderColor: planMeta.color }]}
+                onPress={handleUpgradePress}
+                activeOpacity={0.8}>
+                <Ionicons name="rocket-outline" size={15} color="#fff" />
+                <Text style={styles.upgradeBtnText}>
+                  {isFree ? '🚀 Get Premium' : '⬆ Upgrade Plan'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Already on top tier */}
+            {isTier3 && (
+              <View style={styles.topTierBadge}>
+                <Ionicons name="trophy-outline" size={13} color="#E8A020" />
+                <Text style={styles.topTierText}>You're on the top tier!</Text>
+              </View>
             )}
           </>
         )}
       </View>
 
-      {/* Menu Items */}
+      {/* ── Menu Items ── */}
       <ScrollView style={styles.menuItems} showsVerticalScrollIndicator={false}>
         {menuItems.map((item, index) => (
-          <TouchableOpacity 
-            key={index} 
-            style={styles.menuItem} 
-            onPress={() => handleMenuPress(item.goto)}
-          >
-            <View style={{ width: '9%' }}>
-              {item.icon}
-            </View>
+          <TouchableOpacity
+            key={index}
+            style={styles.menuItem}
+            onPress={() => handleMenuPress(item.goto)}>
+            <View style={{ width: '9%' }}>{item.icon}</View>
             <View style={{ flex: 1 }}>
               <Text style={styles.menuItemLabel}>{item.label}</Text>
             </View>
@@ -212,13 +238,12 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
           </TouchableOpacity>
         ))}
 
-        {/* Logout Button */}
+        {/* Logout */}
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={24} color="red" />
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
 
-        {/* App Version */}
         <View style={styles.versionContainer}>
           <Text style={styles.versionText}>BinIQ v1.0.0</Text>
         </View>
@@ -229,166 +254,87 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
 
 const styles = StyleSheet.create({
   container: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    bottom: 0,
-    width: width * 0.8,
-    backgroundColor: "white",
-    paddingTop: 50,
-    paddingHorizontal: 20,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    position: "absolute", top: 0, left: 0, bottom: 0,
+    width: width * 0.8, backgroundColor: "white",
+    paddingTop: 50, paddingHorizontal: 20,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5,
   },
   closeButton: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-    zIndex: 1,
-    paddingVertical: '5%'
+    position: "absolute", top: 10, right: 10, zIndex: 1, paddingVertical: '5%',
   },
   profileSection: {
-    alignItems: "center",
-    marginBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-    paddingBottom: 20
+    alignItems: "center", marginBottom: 20,
+    borderBottomWidth: 1, borderBottomColor: "#f0f0f0", paddingBottom: 20,
   },
-  loadingContainer: {
-    paddingVertical: 20,
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 10,
-    fontFamily: 'Nunito-Regular',
-    fontSize: hp(1.8),
-    color: '#666',
-  },
-  profileImageContainer: {
-    position: 'relative',
-    marginBottom: 10,
-  },
+  loadingContainer: { paddingVertical: 20, alignItems: 'center' },
+  loadingText: { marginTop: 10, fontFamily: 'Nunito-Regular', fontSize: hp(1.8), color: '#666' },
+  profileImageContainer: { position: 'relative', marginBottom: 10 },
   profilePicture: {
-    width: wp(20),
-    height: wp(20),
-    borderRadius: wp(10),
-    borderWidth: 3,
-    borderColor: '#130160',
+    width: wp(20), height: wp(20), borderRadius: wp(10),
+    borderWidth: 3, borderColor: '#130160',
   },
   editBadge: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: '#14BA9C',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#fff',
+    position: 'absolute', bottom: 0, right: 0,
+    backgroundColor: '#14BA9C', width: 28, height: 28,
+    borderRadius: 14, justifyContent: 'center', alignItems: 'center',
+    borderWidth: 2, borderColor: '#fff',
   },
-  profileName: {
-    fontSize: hp(2.2),
-    color: '#0D0D26',
-    fontFamily: 'Nunito-Bold',
-    marginBottom: 5,
-  },
-  profileEmail: {
-    fontSize: hp(1.6),
-    color: '#666',
-    fontFamily: 'Nunito-Regular',
-    marginBottom: 15,
-  },
+  profileName: { fontSize: hp(2.2), color: '#0D0D26', fontFamily: 'Nunito-Bold', marginBottom: 5 },
+  profileEmail: { fontSize: hp(1.6), color: '#666', fontFamily: 'Nunito-Regular', marginBottom: 15 },
   statsContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#F5F5F5',
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 10,
-    width: '100%',
-    justifyContent: 'space-around',
+    flexDirection: 'row', backgroundColor: '#F5F5F5',
+    borderRadius: 10, padding: 12, marginTop: 10,
+    width: '100%', justifyContent: 'space-around',
   },
-  statItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  statValue: {
-    fontSize: hp(2.2),
-    fontFamily: 'Nunito-Bold',
-    color: '#130160',
-  },
-  statLabel: {
-    fontSize: hp(1.4),
-    fontFamily: 'Nunito-Regular',
-    color: '#666',
-    marginTop: 2,
-  },
-  statDivider: {
-    width: 1,
-    height: 35,
-    backgroundColor: '#ddd',
-  },
+  statItem: { alignItems: 'center', flex: 1 },
+  statValue: { fontSize: hp(2.2), fontFamily: 'Nunito-Bold', color: '#130160' },
+  statLabel: { fontSize: hp(1.4), fontFamily: 'Nunito-Regular', color: '#666', marginTop: 2 },
+  statDivider: { width: 1, height: 35, backgroundColor: '#ddd' },
+
+  // Plan badge
   subscriptionBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFD700',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 15,
-    marginTop: 10,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 15, marginTop: 10, borderWidth: 1,
   },
-  subscriptionText: {
-    fontSize: hp(1.4),
-    fontFamily: 'Nunito-Bold',
-    color: '#130160',
-    marginLeft: 5,
+  subscriptionText: { fontSize: hp(1.4), fontFamily: 'Nunito-Bold', marginLeft: 5 },
+
+  // Upgrade button
+  upgradeBtn: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#130160',
+    paddingHorizontal: 18, paddingVertical: 10,
+    borderRadius: 20, marginTop: 10,
+    borderWidth: 1.5, gap: 6,
   },
-  menuItems: {
-    flex: 1
+  upgradeBtnText: {
+    color: '#fff', fontFamily: 'Nunito-Bold', fontSize: hp(1.8),
   },
+
+  // Top tier badge
+  topTierBadge: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#FFF3E0', paddingHorizontal: 12,
+    paddingVertical: 6, borderRadius: 15, marginTop: 10,
+    borderWidth: 1, borderColor: '#E8A020', gap: 5,
+  },
+  topTierText: { fontSize: hp(1.4), fontFamily: 'Nunito-Bold', color: '#E8A020' },
+
+  menuItems: { flex: 1 },
   menuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: '4.5%',
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#f0f0f0',
+    flexDirection: "row", alignItems: "center",
+    paddingVertical: '4.5%', borderBottomWidth: 0.5, borderBottomColor: '#f0f0f0',
   },
-  menuItemLabel: {
-    marginLeft: 15,
-    fontSize: hp(2),
-    color: '#0D0D26',
-    fontFamily: 'Nunito-SemiBold'
-  },
+  menuItemLabel: { marginLeft: 15, fontSize: hp(2), color: '#0D0D26', fontFamily: 'Nunito-SemiBold' },
   logoutButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 15,
-    marginTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: "#f0f0f0"
+    flexDirection: "row", alignItems: "center",
+    paddingVertical: 15, marginTop: 10,
+    borderTopWidth: 1, borderTopColor: "#f0f0f0",
   },
-  logoutText: {
-    marginLeft: 15,
-    color: "red",
-    fontSize: hp(2),
-    fontFamily: 'Nunito-SemiBold'
-  },
-  versionContainer: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  versionText: {
-    fontSize: hp(1.4),
-    fontFamily: 'Nunito-Regular',
-    color: '#999',
-  },
+  logoutText: { marginLeft: 15, color: "red", fontSize: hp(2), fontFamily: 'Nunito-SemiBold' },
+  versionContainer: { alignItems: 'center', paddingVertical: 20 },
+  versionText: { fontSize: hp(1.4), fontFamily: 'Nunito-Regular', color: '#999' },
 })
 
 export default CustomDrawer
