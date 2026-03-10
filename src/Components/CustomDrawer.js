@@ -25,7 +25,6 @@ import { userAPI } from '../api/apiService';
 
 const { width } = Dimensions.get("window")
 
-// ✅ Plan meta for badge colors
 const PLAN_META = {
   free:  { label: 'Free Plan',  color: '#14BA9C', bg: '#E4F3EE' },
   tier1: { label: 'Tier 1',     color: '#14BA9C', bg: '#E4F3EE' },
@@ -40,11 +39,32 @@ const getPlanKey = (userProfile) => {
   return 'free';
 };
 
+// ✅ Format expiry date nicely
+const formatExpiry = (dateStr) => {
+  if (!dateStr) return null;
+  const date = new Date(dateStr);
+  if (isNaN(date)) return null;
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric', month: 'short', day: 'numeric',
+  });
+};
+
+// ✅ Days remaining from today
+const getDaysRemaining = (dateStr) => {
+  if (!dateStr) return null;
+  const expiry = new Date(dateStr);
+  const today  = new Date();
+  expiry.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
+  return diff;
+};
+
 const CustomDrawer = ({ isOpen, closeDrawer }) => {
   const navigation = useNavigation();
   const translateX = React.useRef(new Animated.Value(-width)).current;
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]         = useState(true);
   const [userProfile, setUserProfile] = useState(null);
 
   React.useEffect(() => {
@@ -63,9 +83,7 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
     try {
       setLoading(true);
       const response = await userAPI.getProfile();
-      if (response) {
-        setUserProfile(response.user || response);
-      }
+      if (response) setUserProfile(response.user || response);
     } catch (err) {
       console.error('Error fetching user profile in drawer:', err);
     } finally {
@@ -97,7 +115,6 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
     navigation.navigate(screen);
   };
 
-  // ✅ Upgrade / Get Premium handler
   const handleUpgradePress = () => {
     closeDrawer();
     navigation.navigate('SelectPremiumPlan', {
@@ -106,18 +123,25 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
     });
   };
 
-  const planKey  = getPlanKey(userProfile);
-  const planMeta = PLAN_META[planKey] ?? PLAN_META.free;
-  const isFree   = planKey === 'free';
-  const isTier3  = planKey === 'tier3';
+  const planKey      = getPlanKey(userProfile);
+  const planMeta     = PLAN_META[planKey] ?? PLAN_META.free;
+  const isFree       = planKey === 'free';
+  const isTier3      = planKey === 'tier3';
+
+  // ✅ Expiry info
+  const expiryDate   = userProfile?.subscription_end_time;
+  const expiryStr    = formatExpiry(expiryDate);
+  const daysLeft     = getDaysRemaining(expiryDate);
+  const isExpiringSoon = daysLeft !== null && daysLeft <= 7 && daysLeft >= 0;
+  const isExpired      = daysLeft !== null && daysLeft < 0;
 
   const menuItems = [
-    { icon: <EditProfile />,      label: "Edit Profile",     goto: 'EditProfileScreen' },
-    { icon: <Feedback />,         label: "Feedback",         goto: 'Feedback' },
-    { icon: <ChangePassword />,   label: "Change Password",  goto: 'ChangePassword' },
-    { icon: <Help />,             label: "Help",             goto: 'HelpAndSupport' },
-    { icon: <ReferallProgram />,  label: "Referral Program", goto: 'ReferFriend' },
-    { icon: <Settings />,         label: "Settings",         goto: 'SettingsScreen' },
+    { icon: <EditProfile />,     label: "Edit Profile",     goto: 'EditProfileScreen' },
+    { icon: <Feedback />,        label: "Feedback",         goto: 'Feedback' },
+    { icon: <ChangePassword />,  label: "Change Password",  goto: 'ChangePassword' },
+    { icon: <Help />,            label: "Help",             goto: 'HelpAndSupport' },
+    { icon: <ReferallProgram />, label: "Referral Program", goto: 'ReferFriend' },
+    { icon: <Settings />,        label: "Settings",         goto: 'SettingsScreen' },
   ];
 
   return (
@@ -184,7 +208,7 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
               </View>
             )}
 
-            {/* ── Current Plan Badge ── */}
+            {/* ── Plan Badge ── */}
             <View style={[styles.subscriptionBadge, {
               backgroundColor: planMeta.bg,
               borderColor: planMeta.color,
@@ -199,10 +223,53 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
               </Text>
             </View>
 
-            {/* ── Upgrade Button ── */}
-            {!isTier3 && (
+            {/* ✅ Expiry section — only for paid plans */}
+            {!isFree && expiryStr && (
+              <View style={[
+                styles.expiryContainer,
+                isExpired      && styles.expiryContainerExpired,
+                isExpiringSoon && !isExpired && styles.expiryContainerWarning,
+              ]}>
+                <Ionicons
+                  name={isExpired ? 'close-circle-outline' : isExpiringSoon ? 'warning-outline' : 'time-outline'}
+                  size={13}
+                  color={isExpired ? '#FF4444' : isExpiringSoon ? '#E8A020' : '#666'}
+                />
+                <View style={{ marginLeft: 5 }}>
+                  {isExpired ? (
+                    <Text style={styles.expiryTextExpired}>Plan expired</Text>
+                  ) : isExpiringSoon ? (
+                    <>
+                      <Text style={styles.expiryTextWarning}>
+                        Expires in {daysLeft} day{daysLeft !== 1 ? 's' : ''}
+                      </Text>
+                      <Text style={styles.expiryDate}>{expiryStr}</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.expiryLabel}>Renews on</Text>
+                      <Text style={styles.expiryDate}>{expiryStr}</Text>
+                    </>
+                  )}
+                </View>
+              </View>
+            )}
+
+            {/* ✅ Renew Now button if expired or expiring soon */}
+            {!isFree && (isExpired || isExpiringSoon) && (
               <TouchableOpacity
-                style={[styles.upgradeBtn, { borderColor: planMeta.color }]}
+                style={[styles.renewBtn, { borderColor: isExpired ? '#FF4444' : '#E8A020' }]}
+                onPress={handleUpgradePress}>
+                <Text style={[styles.renewBtnText, { color: isExpired ? '#FF4444' : '#E8A020' }]}>
+                  {isExpired ? '⚠ Renew Plan' : '⚡ Renew Early'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* ── Upgrade Button ── */}
+            {!isTier3 && !isExpired && !isExpiringSoon && (
+              <TouchableOpacity
+                style={styles.upgradeBtn}
                 onPress={handleUpgradePress}
                 activeOpacity={0.8}>
                 <Ionicons name="rocket-outline" size={15} color="#fff" />
@@ -213,7 +280,7 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
             )}
 
             {/* Already on top tier */}
-            {isTier3 && (
+            {isTier3 && !isExpired && !isExpiringSoon && (
               <View style={styles.topTierBadge}>
                 <Ionicons name="trophy-outline" size={13} color="#E8A020" />
                 <Text style={styles.topTierText}>You're on the top tier!</Text>
@@ -238,7 +305,6 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
           </TouchableOpacity>
         ))}
 
-        {/* Logout */}
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={24} color="red" />
           <Text style={styles.logoutText}>Logout</Text>
@@ -300,17 +366,40 @@ const styles = StyleSheet.create({
   },
   subscriptionText: { fontSize: hp(1.4), fontFamily: 'Nunito-Bold', marginLeft: 5 },
 
+  // ✅ Expiry container
+  expiryContainer: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#F5F5F5', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 8,
+    marginTop: 8, width: '100%', borderWidth: 1, borderColor: '#eee',
+  },
+  expiryContainerWarning: {
+    backgroundColor: '#FFF8E7', borderColor: '#E8A020',
+  },
+  expiryContainerExpired: {
+    backgroundColor: '#FFEBEE', borderColor: '#FF4444',
+  },
+  expiryLabel: { fontSize: hp(1.3), color: '#999', fontFamily: 'Nunito-Regular' },
+  expiryDate:  { fontSize: hp(1.6), color: '#130160', fontFamily: 'Nunito-Bold' },
+  expiryTextWarning: { fontSize: hp(1.6), color: '#E8A020', fontFamily: 'Nunito-Bold' },
+  expiryTextExpired:  { fontSize: hp(1.6), color: '#FF4444', fontFamily: 'Nunito-Bold' },
+
+  // Renew button
+  renewBtn: {
+    marginTop: 8, paddingHorizontal: 16, paddingVertical: 8,
+    borderRadius: 15, borderWidth: 1.5, width: '100%',
+    alignItems: 'center',
+  },
+  renewBtnText: { fontFamily: 'Nunito-Bold', fontSize: hp(1.7) },
+
   // Upgrade button
   upgradeBtn: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#130160',
-    paddingHorizontal: 18, paddingVertical: 10,
-    borderRadius: 20, marginTop: 10,
-    borderWidth: 1.5, gap: 6,
+    backgroundColor: '#130160', paddingHorizontal: 18,
+    paddingVertical: 10, borderRadius: 20, marginTop: 10,
+    borderWidth: 1.5, borderColor: '#130160', gap: 6,
   },
-  upgradeBtnText: {
-    color: '#fff', fontFamily: 'Nunito-Bold', fontSize: hp(1.8),
-  },
+  upgradeBtnText: { color: '#fff', fontFamily: 'Nunito-Bold', fontSize: hp(1.8) },
 
   // Top tier badge
   topTierBadge: {

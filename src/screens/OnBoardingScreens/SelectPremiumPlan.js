@@ -13,7 +13,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const TIERS = [
   {
-    id: 'tier1', label: 'Tier 1', price: '$29/mo', priceAlt: '$300/yr', color: '#14BA9C',
+    id: 'tier1', label: 'Tier 1',
+    monthly: { price: '$29/mo',  amount: 2900  },
+    yearly:  { price: '$300/yr', amount: 30000 },
+    color: '#14BA9C',
     features: [
       { label: 'Store Finder', value: '✔' },
       { label: 'Price Fetcher', value: '✔' },
@@ -34,7 +37,10 @@ const TIERS = [
     ],
   },
   {
-    id: 'tier2', label: 'Tier 2', price: '$59/mo', priceAlt: '$600/yr', color: '#7B5EA7',
+    id: 'tier2', label: 'Tier 2',
+    monthly: { price: '$59/mo',  amount: 5900  },
+    yearly:  { price: '$600/yr', amount: 60000 },
+    color: '#7B5EA7',
     features: [
       { label: 'Store Finder', value: '✔' },
       { label: 'Price Fetcher', value: '✔' },
@@ -56,7 +62,10 @@ const TIERS = [
     ],
   },
   {
-    id: 'tier3', label: 'Tier 3', price: '$99/mo', priceAlt: '$999/yr', color: '#E8A020',
+    id: 'tier3', label: 'Tier 3',
+    monthly: { price: '$99/mo',   amount: 9900   },
+    yearly:  { price: '$999/yr',  amount: 99900  },
+    color: '#E8A020',
     features: [
       { label: 'Store Finder', value: '✔' },
       { label: 'Price Fetcher', value: '✔' },
@@ -81,14 +90,22 @@ const TIERS = [
   },
 ];
 
-const TIER_ORDER = { free: 0, tier1: 1, tier2: 2, tier3: 3 };
-const TIER_AMOUNTS = { tier1: 2900, tier2: 5900, tier3: 9900 };
-const API_BASE_URL = 'http://10.218.181.46:3001';
+// Savings label for yearly
+const YEARLY_SAVINGS = {
+  tier1: 'Save $48/yr',   // 29*12=348, 300 → save 48
+  tier2: 'Save $108/yr',  // 59*12=708, 600 → save 108
+  tier3: 'Save $189/yr',  // 99*12=1188, 999 → save 189
+};
+
+const TIER_ORDER  = { free: 0, tier1: 1, tier2: 2, tier3: 3 };
+const API_BASE_URL = 'http://10.218.181.197:3001';
+
+// Duration in days — monthly=30, yearly=365
+const PLAN_DURATIONS = { monthly: 30, yearly: 365 };
 
 const SelectPremiumPlan = ({ navigation, route }) => {
-  const { userData, selectedPlan, isUpgrade = false, currentPlan = 'free' } = route?.params || {};
+  const { isUpgrade = false, currentPlan = 'free' } = route?.params || {};
 
-  // ✅ For upgrades: start tab on the next tier above current
   const getDefaultTab = () => {
     if (!isUpgrade) return 0;
     const currentOrder = TIER_ORDER[currentPlan] ?? 0;
@@ -96,12 +113,15 @@ const SelectPremiumPlan = ({ navigation, route }) => {
     return nextIndex >= 0 ? nextIndex : 0;
   };
 
-  const [activeTab, setActiveTab] = useState(getDefaultTab());
-  const [loading, setLoading] = useState(false);
+  const [activeTab,    setActiveTab]    = useState(getDefaultTab());
+  const [billing,      setBilling]      = useState('monthly'); // 'monthly' | 'yearly'
+  const [loading,      setLoading]      = useState(false);
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
-  const selectedTier = TIERS[activeTab];
 
-  // ✅ For upgrades: disable tabs for current plan and below
+  const selectedTier    = TIERS[activeTab];
+  const billingInfo     = selectedTier[billing];   // { price, amount }
+  const isYearly        = billing === 'yearly';
+
   const isTabDisabled = (tier) => {
     if (!isUpgrade) return false;
     return TIER_ORDER[tier.id] <= TIER_ORDER[currentPlan];
@@ -118,7 +138,7 @@ const SelectPremiumPlan = ({ navigation, route }) => {
         return;
       }
 
-      // Create PaymentIntent
+      // Create PaymentIntent — send billing cycle too
       const response = await fetch(
         `${API_BASE_URL}/api/payments/create-payment-intent`,
         {
@@ -128,9 +148,9 @@ const SelectPremiumPlan = ({ navigation, route }) => {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            amount: TIER_AMOUNTS[selectedTier.id],
-            currency: 'usd',
-            plan: selectedTier.id,
+            currency:       'usd',
+            plan:           selectedTier.id,
+            billing_cycle:  billing,   // ✅ 'monthly' or 'yearly'
           }),
         },
       );
@@ -140,9 +160,8 @@ const SelectPremiumPlan = ({ navigation, route }) => {
         throw new Error(data.message || 'Failed to create payment intent');
       }
 
-      // Init Stripe sheet
       const { error: initError } = await initPaymentSheet({
-        merchantDisplayName: 'BinIQ',
+        merchantDisplayName:      'BinIQ',
         paymentIntentClientSecret: data.clientSecret,
         appearance: { colors: { primary: selectedTier.color } },
       });
@@ -152,7 +171,6 @@ const SelectPremiumPlan = ({ navigation, route }) => {
         return;
       }
 
-      // Present Stripe sheet — user enters card here
       const { error: paymentError } = await presentPaymentSheet();
       if (paymentError) {
         if (paymentError.code !== 'Canceled') {
@@ -172,7 +190,8 @@ const SelectPremiumPlan = ({ navigation, route }) => {
           },
           body: JSON.stringify({
             payment_intent_id: data.paymentIntentId,
-            plan: selectedTier.id,
+            plan:              selectedTier.id,
+            billing_cycle:     billing,   // ✅ pass through
           }),
         },
       );
@@ -182,16 +201,12 @@ const SelectPremiumPlan = ({ navigation, route }) => {
         throw new Error(confirmData.message || 'Subscription confirmation failed');
       }
 
-      // ✅ Success — different message for upgrade vs new
       Alert.alert(
         isUpgrade ? '🎉 Plan Upgraded!' : '🎉 Welcome to Premium!',
         isUpgrade
-          ? `You've upgraded to ${selectedTier.label}. Your new benefits are active!`
-          : `You are now on ${selectedTier.label}. Enjoy your benefits!`,
-        [{
-          text: 'Get Started',
-          onPress: () => navigation.replace('HomeNavigataor'),
-        }],
+          ? `You've upgraded to ${selectedTier.label} (${billing}). Your new benefits are active!`
+          : `You are now on ${selectedTier.label} (${billing}). Enjoy your benefits!`,
+        [{ text: 'Get Started', onPress: () => navigation.replace('HomeNavigataor') }],
       );
 
     } catch (err) {
@@ -206,6 +221,7 @@ const SelectPremiumPlan = ({ navigation, route }) => {
     <View style={styles.container}>
       <StatusBar translucent backgroundColor="transparent" />
 
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Text style={styles.backArrow}>{'<'}</Text>
@@ -227,7 +243,29 @@ const SelectPremiumPlan = ({ navigation, route }) => {
         </Text>
       </View>
 
-      {/* ✅ Tab row — disabled tabs are grayed out for upgrades */}
+      {/* ✅ Monthly / Yearly toggle */}
+      <View style={styles.billingToggleRow}>
+        <TouchableOpacity
+          style={[styles.billingBtn, !isYearly && styles.billingBtnActive]}
+          onPress={() => setBilling('monthly')}>
+          <Text style={[styles.billingBtnText, !isYearly && styles.billingBtnTextActive]}>
+            Monthly
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.billingBtn, isYearly && styles.billingBtnActive]}
+          onPress={() => setBilling('yearly')}>
+          <Text style={[styles.billingBtnText, isYearly && styles.billingBtnTextActive]}>
+            Yearly
+          </Text>
+          {/* Savings badge */}
+          <View style={styles.savingsBadge}>
+            <Text style={styles.savingsText}>{YEARLY_SAVINGS[selectedTier.id]}</Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+
+      {/* Tier tabs */}
       <View style={styles.tabRow}>
         {TIERS.map((tier, idx) => {
           const disabled = isTabDisabled(tier);
@@ -248,21 +286,30 @@ const SelectPremiumPlan = ({ navigation, route }) => {
               ]}>
                 {tier.label}
               </Text>
-              {disabled && (
-                <Text style={styles.tabCurrentLabel}>current</Text>
-              )}
+              {disabled && <Text style={styles.tabCurrentLabel}>current</Text>}
             </TouchableOpacity>
           );
         })}
       </View>
 
+      {/* Price badge */}
       <View style={[styles.priceBadge, { backgroundColor: selectedTier.color + '18' }]}>
         <Text style={[styles.priceMain, { color: selectedTier.color }]}>
-          {selectedTier.price}
+          {billingInfo.price}
         </Text>
-        <Text style={styles.priceAlt}>  or {selectedTier.priceAlt}</Text>
+        {isYearly && (
+          <Text style={[styles.savingsInline, { color: selectedTier.color }]}>
+            {'  '}{YEARLY_SAVINGS[selectedTier.id]}
+          </Text>
+        )}
+        {!isYearly && (
+          <Text style={styles.priceAlt}>
+            {'  or '}{selectedTier.yearly.price}
+          </Text>
+        )}
       </View>
 
+      {/* Features */}
       <ScrollView
         style={styles.featureScroll}
         contentContainerStyle={styles.featureContent}
@@ -277,6 +324,7 @@ const SelectPremiumPlan = ({ navigation, route }) => {
         <View style={{ height: hp(14) }} />
       </ScrollView>
 
+      {/* Subscribe button */}
       <LinearGradient
         colors={[selectedTier.color, selectedTier.color + 'cc']}
         style={styles.subscribeBtn}>
@@ -288,7 +336,9 @@ const SelectPremiumPlan = ({ navigation, route }) => {
             <ActivityIndicator color="#fff" />
           ) : (
             <Text style={styles.subscribeBtnText}>
-              {isUpgrade ? `Upgrade to ${selectedTier.label} — ${selectedTier.price}` : `Subscribe — ${selectedTier.price}`}
+              {isUpgrade
+                ? `Upgrade to ${selectedTier.label} — ${billingInfo.price}`
+                : `Subscribe — ${billingInfo.price}`}
             </Text>
           )}
         </TouchableOpacity>
@@ -314,8 +364,30 @@ const styles = StyleSheet.create({
   titleBlock: { paddingHorizontal: wp(5), marginTop: hp(2) },
   title: { fontSize: hp(3), fontWeight: 'bold', color: '#130160' },
   subtitle: { fontSize: hp(1.8), color: '#524B6B' },
-  tabRow: {
+
+  // ── Billing toggle ──
+  billingToggleRow: {
     flexDirection: 'row', marginHorizontal: wp(5), marginTop: hp(2),
+    backgroundColor: '#F3F3F3', borderRadius: 12, padding: 4,
+  },
+  billingBtn: {
+    flex: 1, paddingVertical: hp(1.2), borderRadius: 10,
+    alignItems: 'center', flexDirection: 'row',
+    justifyContent: 'center', gap: 6,
+  },
+  billingBtnActive: { backgroundColor: '#130160' },
+  billingBtnText: { fontSize: hp(1.9), color: '#888', fontWeight: '600' },
+  billingBtnTextActive: { color: '#fff' },
+  savingsBadge: {
+    backgroundColor: '#14BA9C', borderRadius: 8,
+    paddingHorizontal: 6, paddingVertical: 2,
+  },
+  savingsText: { fontSize: hp(1.3), color: '#fff', fontWeight: 'bold' },
+  savingsInline: { fontSize: hp(1.8), fontWeight: '600' },
+
+  // ── Tier tabs ──
+  tabRow: {
+    flexDirection: 'row', marginHorizontal: wp(5), marginTop: hp(1.5),
     backgroundColor: '#F3F3F3', borderRadius: 12, padding: 4,
   },
   tab: { flex: 1, paddingVertical: hp(1.2), borderRadius: 10, alignItems: 'center' },
@@ -324,12 +396,15 @@ const styles = StyleSheet.create({
   tabTextActive: { color: '#fff' },
   tabTextDisabled: { color: '#bbb' },
   tabCurrentLabel: { fontSize: hp(1.1), color: '#aaa', marginTop: 1 },
+
+  // ── Price badge ──
   priceBadge: {
-    marginHorizontal: wp(5), marginTop: hp(2), borderRadius: 12,
+    marginHorizontal: wp(5), marginTop: hp(1.5), borderRadius: 12,
     padding: hp(1.5), flexDirection: 'row', alignItems: 'baseline',
   },
   priceMain: { fontSize: hp(3.5), fontWeight: 'bold' },
   priceAlt: { fontSize: hp(1.8), color: '#888' },
+
   featureScroll: { flex: 1, marginTop: hp(1) },
   featureContent: { paddingHorizontal: wp(5) },
   featureRow: {
