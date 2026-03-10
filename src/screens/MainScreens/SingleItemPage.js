@@ -501,7 +501,7 @@ const SingleItemPage = () => {
           </View>
 
           {/* ── Action buttons — My Fav + Add Library ── */}
-          <View style={styles.buttonContainer}>
+          {/* <View style={styles.buttonContainer}>
             <TouchableOpacity
               style={styles.button}
               onPress={handleToggleFavorite}>
@@ -519,7 +519,7 @@ const SingleItemPage = () => {
               onPress={handleAddToLibrary}>
               <Text style={styles.buttonText}>Add Library</Text>
             </TouchableOpacity>
-          </View>
+          </View> */}
 
           {/* ── Similar items ── */}
           {similarItems.length > 0 && (
