@@ -98,7 +98,7 @@ const YEARLY_SAVINGS = {
 };
 
 const TIER_ORDER  = { free: 0, tier1: 1, tier2: 2, tier3: 3 };
-const API_BASE_URL = 'http://10.218.181.197:3001';
+const API_BASE_URL = 'https://biniq.onrender.com';
 
 // Duration in days — monthly=30, yearly=365
 const PLAN_DURATIONS = { monthly: 30, yearly: 365 };

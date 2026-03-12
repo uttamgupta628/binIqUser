@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Base API URL
-const API_BASE_URL = 'http://10.218.181.197:3001';
+const API_BASE_URL = 'https://biniq.onrender.com';
 
 // API Configuration
 const API_CONFIG = {
