@@ -331,9 +331,8 @@ const BinStorePage = () => {
   const [isFollowing, setIsFollowing] = useState(false);
   const [isCheckedIn, setIsCheckedIn] = useState(false);
 
-  // ── Verify My Bin ──────────────────────────────────────────────────────────
+  // ── Verify My Bin — derived locally, no separate API call ─────────────────
   const [isBinVerified, setIsBinVerified] = useState(false);
-  const [isLoadingVerification, setIsLoadingVerification] = useState(false);
 
   // ── Resolved once from /api/users/profile ─────────────────────────────────
   const currentUserIdRef = useRef(null);
@@ -373,23 +372,20 @@ const BinStorePage = () => {
     [],
   );
 
-  // ─── Check if the store owner has an active subscription ──────────────────
-  const checkBinVerification = async storeOwnerId => {
-    if (!storeOwnerId) return;
-    setIsLoadingVerification(true);
-    try {
-      const result = await subscriptionsAPI.verifyStoreOwner(storeOwnerId);
-      setIsBinVerified(result?.verified === true);
-    } catch (e) {
-      // 400 "User is not a store owner" is an expected case — not an error
-      const isExpected = e?.status === 400 || e?.data?.verified === false;
-      if (!isExpected) {
-        console.warn('checkBinVerification unexpected error:', e?.message ?? e);
-      }
-      setIsBinVerified(false);
-    } finally {
-      setIsLoadingVerification(false);
-    }
+  // ─── Derive verification locally from store details + user profile ─────────
+  // Same logic as StoreViewPage — no API call needed
+  const deriveVerification = (details, userProfile) => {
+    const now = new Date();
+    const endTime =
+      details?.subscription_end_time || userProfile?.subscription_end_time;
+    const notExpired = endTime && new Date(endTime) > now;
+
+    return (
+      details?.verified === true ||
+      userProfile?.verified === true ||
+      userProfile?.status === 'approved' ||
+      notExpired === true
+    );
   };
 
   // ─── Loaders ──────────────────────────────────────────────────────────────
@@ -417,15 +413,16 @@ const BinStorePage = () => {
           !!details.checked_in_by?.some(id => id.toString() === uid),
         );
 
+        // ── Derive verification locally — same approach as StoreViewPage ──
+        const verified = deriveVerification(details, userProfile);
+        setIsBinVerified(verified);
+
         const confirmedUserId =
           resolveUserId(details.user_id) || details._id?.toString();
 
         loadTrendingProducts(confirmedUserId);
         loadActivityFeed(confirmedUserId, uid);
         loadPromotions(confirmedUserId);
-
-        // ── Check subscription verification for this store owner ──────────
-        checkBinVerification(confirmedUserId);
       }
     } catch (e) {
       console.error('BinStorePage loadStoreAndUser:', e);
@@ -787,6 +784,7 @@ const BinStorePage = () => {
               <Text style={styles.storeNameText} numberOfLines={1}>
                 {storeName}
               </Text>
+              {/* Blue tick — only when verified */}
               {isBinVerified && <BoldTick width={20} />}
             </View>
             <View style={styles.statsRow}>
@@ -834,37 +832,29 @@ const BinStorePage = () => {
           </Text>
         </TouchableOpacity>
 
-        {/* ── Verify My Bin ── */}
-        <TouchableOpacity
+        {/* ── Verify My Bin — status badge only, no tap action ── */}
+        <View
           style={[
             styles.actionBtnVerifyBase,
             isBinVerified
               ? styles.actionBtnVerified
               : styles.actionBtnNotVerified,
-          ]}
-          disabled={isLoadingVerification}
-          activeOpacity={0.85}>
-          {isLoadingVerification ? (
-            <ActivityIndicator size="small" color="#000" />
+          ]}>
+          {isBinVerified ? (
+            <GreenTick width={15} height={15} />
           ) : (
-            <>
-              {isBinVerified ? (
-                <GreenTick width={15} height={15} />
-              ) : (
-                <MaterialIcons name="cancel" size={15} color="#FF3B30" />
-              )}
-              <Text
-                style={[
-                  styles.verifyBtnText,
-                  isBinVerified
-                    ? styles.verifiedBtnText
-                    : styles.notVerifiedBtnText,
-                ]}>
-                {isBinVerified ? 'Verified' : 'Not Verified'}
-              </Text>
-            </>
+            <MaterialIcons name="cancel" size={15} color="#FF3B30" />
           )}
-        </TouchableOpacity>
+          <Text
+            style={[
+              styles.verifyBtnText,
+              isBinVerified
+                ? styles.verifiedBtnText
+                : styles.notVerifiedBtnText,
+            ]}>
+            {isBinVerified ? 'Verified' : 'Not Verified'}
+          </Text>
+        </View>
       </View>
 
       {/* ── Store Details ── */}
@@ -1103,22 +1093,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: '9%',
   },
   actionBtnChecked: {backgroundColor: '#FF3B30', borderColor: '#FF3B30'},
-  actionBtnGreen: {
-    width: '48%',
-    borderWidth: 0.8,
-    borderColor: '#00B813',
-    borderRadius: 7,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: '5%',
-  },
-  verifyBtnInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  // ── Verify My Bin states ──────────────────────────────────────
   actionBtnVerifyBase: {
     width: '48%',
     borderWidth: 0.8,
@@ -1128,7 +1102,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 5,
   },
-  // ── Verify My Bin states ──────────────────────────────────────
   actionBtnVerified: {
     backgroundColor: '#E8FBF5',
     borderColor: '#00B813',
@@ -1137,33 +1110,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF0F0',
     borderColor: '#FF3B30',
   },
+  verifyBtnText: {
+    fontFamily: 'Nunito-SemiBold',
+    fontSize: hp(1.9),
+  },
   verifiedBtnText: {
     color: '#00B813',
-    fontFamily: 'Nunito-SemiBold',
   },
   notVerifiedBtnText: {
     color: '#FF3B30',
-    fontFamily: 'Nunito-SemiBold',
   },
   actionBtnText: {
     fontFamily: 'Nunito-SemiBold',
     color: '#000',
     fontSize: hp(1.9),
-  },
-  contentHeader: {
-    width: '90%',
-    marginHorizontal: '5%',
-    marginTop: '7%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  contentTitle: {fontFamily: 'Nunito-Bold', color: '#000', fontSize: hp(2.4)},
-  starsRow: {flexDirection: 'row', alignItems: 'center'},
-  reviewCountText: {
-    fontFamily: 'Nunito-SemiBold',
-    color: '#828282',
-    fontSize: hp(1.8),
   },
   detailsBox: {width: '90%', marginHorizontal: '5%', marginTop: '4%'},
   detailRow: {
@@ -1276,13 +1236,6 @@ const styles = StyleSheet.create({
     shadowOffset: {width: 0, height: 1},
     shadowOpacity: 0.2,
     shadowRadius: 2,
-  },
-  likeCountText: {
-    fontFamily: 'Nunito-Bold',
-    fontSize: hp(1.3),
-    color: '#EE2525',
-    textAlign: 'center',
-    marginTop: 2,
   },
   trendingBadge: {
     position: 'absolute',

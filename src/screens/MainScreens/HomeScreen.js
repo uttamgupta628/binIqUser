@@ -31,7 +31,12 @@ import SettingsIcon from '../../../assets/SettingsIcon.svg';
 import Dashboard from './Dashboard';
 import Dashboard2 from './Dashboard2';
 import Dashboard3 from './Dashboard3';
-import {storesAPI, productsAPI, userAPI} from '../../api/apiService';
+import {
+  storesAPI,
+  productsAPI,
+  userAPI,
+  notificationsAPI,
+} from '../../api/apiService';
 
 const {width} = Dimensions.get('window');
 
@@ -241,7 +246,7 @@ const HomeScreen = ({openDrawer}) => {
   const [activeSlide, setActiveSlide] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
+  const [unreadCount, setUnreadCount] = useState(0);
   const [nearbyStores, setNearbyStores] = useState([]);
   const [trendingProducts, setTrendingProducts] = useState([]);
   const [userProfile, setUserProfile] = useState(null);
@@ -259,6 +264,7 @@ const HomeScreen = ({openDrawer}) => {
         fetchNearbyStores(),
         fetchTrendingProducts(),
         fetchFavoriteStores(),
+        fetchUnreadCount(), // ← add this
       ]);
     } catch (e) {
       console.error('fetchAllData:', e);
@@ -300,6 +306,17 @@ const HomeScreen = ({openDrawer}) => {
     } catch (e) {
       console.error('fetchTrendingProducts:', e);
       setTrendingProducts([]);
+    }
+  };
+
+  const fetchUnreadCount = async () => {
+    try {
+      const data = await notificationsAPI.getAll();
+      const list = Array.isArray(data) ? data : data.notifications || [];
+      const count = list.filter(n => !n.read).length;
+      setUnreadCount(count);
+    } catch (e) {
+      console.error('fetchUnreadCount:', e);
     }
   };
 
@@ -401,8 +418,21 @@ const HomeScreen = ({openDrawer}) => {
               <Pressable onPress={() => navigation.navigate('ReferFriend')}>
                 <GetButton height={hp(3.5)} />
               </Pressable>
-              <Pressable onPress={() => navigation.navigate('Notifications')}>
-                <Notification height={hp(10)} />
+              <Pressable
+                onPress={() => navigation.navigate('Notifications')}
+                style={styles.notifButton}>
+                <Ionicons
+                  name="notifications-outline"
+                  size={hp(3.2)}
+                  color="#000"
+                />
+                {unreadCount > 0 && (
+                  <View style={styles.notifBadge}>
+                    <Text style={styles.notifBadgeText}>
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </Text>
+                  </View>
+                )}
               </Pressable>
             </View>
           </View>
@@ -832,5 +862,29 @@ const styles = StyleSheet.create({
     fontFamily: 'Nunito-SemiBold',
     color: '#14BA9C',
     fontSize: hp(1.4),
+  },
+  notifButton: {
+    position: 'relative',
+    padding: 4,
+  },
+  notifBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -4,
+    backgroundColor: '#FF3B30',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  notifBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontFamily: 'Nunito-Bold',
+    lineHeight: 13,
   },
 });
