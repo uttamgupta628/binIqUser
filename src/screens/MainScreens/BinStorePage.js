@@ -436,7 +436,7 @@ const BinStorePage = () => {
     setIsLoadingTrending(true);
     try {
       const token = await AsyncStorage.getItem('authToken');
-      const url = `https://biniq.onrender.com/api/products/trending${
+      const url = `http://192.168.1.4:3001/api/products/trending${
         userId ? `?user_id=${userId}` : ''
       }`;
       const res = await fetch(url, {
@@ -456,7 +456,7 @@ const BinStorePage = () => {
     setIsLoadingActivity(true);
     try {
       const token = await AsyncStorage.getItem('authToken');
-      const url = `https://biniq.onrender.com/api/products/activity${
+      const url = `http://192.168.1.4:3001/api/products/activity${
         userId ? `?user_id=${userId}` : ''
       }`;
       const res = await fetch(url, {
@@ -477,7 +477,7 @@ const BinStorePage = () => {
     setIsLoadingPromotions(true);
     try {
       const token = await AsyncStorage.getItem('authToken');
-      const url = `https://biniq.onrender.com/api/promotions${
+      const url = `http://192.168.1.4:3001/api/promotions${
         userId ? `?user_id=${userId}` : ''
       }`;
       const res = await fetch(url, {

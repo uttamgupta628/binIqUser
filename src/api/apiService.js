@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Base API URL
-const API_BASE_URL = 'https://biniq.onrender.com';
+const API_BASE_URL = 'http://192.168.1.4:3001';
 
 // API Configuration
 const API_CONFIG = {
@@ -61,16 +61,13 @@ const handleResponse = async response => {
     data = await response.text();
   }
   if (!response.ok) {
-    const error = {
-      status: response.status,
-      message: data.message || data.error || 'An error occurred',
-      data: data,
-    };
-    throw error;
+    const err = new Error(data.message || data.error || 'An error occurred'); // ✅ proper Error object
+    err.status = response.status; // ✅ status accessible as error.status in catch
+    err.data = data;
+    throw err;
   }
   return data;
 };
-
 // Generic API request function
 const apiRequest = async (url, options = {}) => {
   const headers = await buildHeaders(options.headers);
@@ -218,7 +215,10 @@ export const authAPI = {
     return response;
   },
   login: async data => {
-    const response = await apiService.post(API_ENDPOINTS.auth.login, data);
+    const response = await apiService.post(API_ENDPOINTS.auth.login, {
+      ...data,
+      role: 2,
+    });
     if (response.token) {
       await setAuthToken(response.token);
     }

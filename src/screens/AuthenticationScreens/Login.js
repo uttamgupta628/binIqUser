@@ -73,90 +73,72 @@ const Login = () => {
   };
 
   // Handle login
-  const handleLogin = async () => {
-    // Validate form
-    if (!validateForm()) {
-      Alert.alert('Validation Error', 'Please fix the errors in the form');
-      return;
+const handleLogin = async () => {
+  if (!validateForm()) {
+    Alert.alert('Validation Error', 'Please fix the errors in the form');
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    const loginData = {
+      email: formData.email,
+      password: formData.password,
+      role: 2, // ✅ Only Resellers (role 2) can login here
+    };
+
+    console.log('SENDING TO BACKEND:', JSON.stringify(loginData)); // ✅ ADD THIS
+const response = await authAPI.login(loginData);
+console.log('RESPONSE ROLE:', response.user_details?.role); 
+    if (response.token) {
+      await AsyncStorage.setItem('authToken', response.token);
+    }
+    if (response.user) {
+      await AsyncStorage.setItem('userData', JSON.stringify(response.user));
+    }
+    if (response.user_id) {
+      await AsyncStorage.setItem('userId', response.user_id);
     }
 
-    setLoading(true);
-
-    try {
-      // Prepare login data
-      const loginData = {
-        email: formData.email,
-        password: formData.password,
-      };
-
-      console.log('Attempting login:', {email: loginData.email});
-
-      // Call login API
-      const response = await authAPI.login(loginData);
-
-      console.log('Login successful:', response);
-
-      // Store user data in AsyncStorage
-      if (response.token) {
-        await AsyncStorage.setItem('authToken', response.token);
-      }
-      if (response.user) {
-        await AsyncStorage.setItem('userData', JSON.stringify(response.user));
-      }
-      if (response.user_id) {
-        await AsyncStorage.setItem('userId', response.user_id);
-      }
-
-      // Navigate based on user role or verification status
-      if (response.verified === false) {
-        // If user is not verified, navigate to verification screen
-        Alert.alert(
-          'Email Verification Required',
-          'Please verify your email to continue.',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                navigation.navigate('VerificationScreen', {
-                  email: formData.email,
-                  userId: response.user_id,
-                });
-              },
-            },
-          ]
-        );
-      } else {
-        // Navigate to main app
-        Alert.alert('Success!', 'Welcome back!', [
-          {
-            text: 'OK',
-            onPress: () => {
-              navigation.replace('HomeNavigataor');
-            },
-          },
-        ]);
-      }
-    } catch (error) {
-      console.error('Login error:', error);
-
-      // Handle specific error messages
-      let errorMessage = 'Login failed. Please try again.';
-
-      if (error.status === 401) {
-        errorMessage = 'Invalid email or password';
-      } else if (error.status === 404) {
-        errorMessage = 'Account not found. Please register first.';
-      } else if (error.status === 403) {
-        errorMessage = 'Account is not active. Please contact support.';
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-
-      Alert.alert('Login Failed', errorMessage);
-    } finally {
-      setLoading(false);
+    if (response.verified === false) {
+      Alert.alert(
+        'Email Verification Required',
+        'Please verify your email to continue.',
+        [{
+          text: 'OK',
+          onPress: () => navigation.navigate('VerificationScreen', {
+            email: formData.email,
+            userId: response.user_id,
+          }),
+        }]
+      );
+    } else {
+      navigation.replace('HomeNavigataor'); // ✅ removed unnecessary Alert wrapper
     }
-  };
+
+  } catch (error) {
+    console.error('Login error:', error);
+
+    let errorMessage = 'Login failed. Please try again.';
+
+    const status = error.status || error.response?.status; // ✅ properly read status
+
+    if (status === 400) {
+      errorMessage = 'Invalid email or password.';
+    } else if (status === 403) {
+      errorMessage = 'Access denied. This app is for resellers only.'; // ✅ blocks store owners
+    } else if (status === 404) {
+      errorMessage = 'Account not found. Please register first.';
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+
+    Alert.alert('Login Failed', errorMessage);
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <ScrollView style={styles.container}>
