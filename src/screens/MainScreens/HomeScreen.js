@@ -566,14 +566,22 @@ const HomeScreen = ({openDrawer}) => {
   ];
 
   const renderCarouselItem = ({item}) => {
-    const inner = item.isMap ? <Dashboard2 /> :
-      item.isDashboard ? <Dashboard userProfile={userProfile} /> : <Dashboard3 />;
-    return (
-      <View style={{width: wp(90), height: '100%', overflow: 'hidden', alignSelf: 'center'}}>
-        {inner}
-      </View>
-    );
-  };
+  const isFullWidth = item.isMap;
+
+  const inner = item.isMap ? <Dashboard2 /> :
+    item.isDashboard ? <Dashboard userProfile={userProfile} /> : <Dashboard3 />;
+
+  return (
+    <View style={{
+      width: width,           // all items same width for carousel
+      height: '100%',
+      overflow: 'hidden',
+      paddingHorizontal: isFullWidth ? 0 : wp(5),  // 👈 padding on non-full
+    }}>
+      {inner}
+    </View>
+  );
+};
 
   if (loading) {
     return (
