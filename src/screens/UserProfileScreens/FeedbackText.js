@@ -11,61 +11,59 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import React, { useState } from 'react';
-import { heightPercentageToDP as hp, widthPercentageToDP as wp } from 'react-native-responsive-screen';
-import { TouchableOpacity } from 'react-native-gesture-handler';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import React, {useState} from 'react';
+import {
+  heightPercentageToDP as hp,
+  widthPercentageToDP as wp,
+} from 'react-native-responsive-screen';
+import {TouchableOpacity} from 'react-native-gesture-handler';
+import {useNavigation, useRoute} from '@react-navigation/native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { userAPI } from '../../api/apiService';
+import {feedbackAPI} from '../../api/apiService';
 
 const FeedbackText = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const rating = route.params?.rating || 0;
-  const feedbackData = route.params?.feedbackData || {};
 
   const [feedbackText, setFeedbackText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [selectedChip, setSelectedChip] = useState(null);
 
   const handleSubmit = async () => {
     if (!feedbackText.trim()) {
-      Alert.alert('Empty Feedback', 'Please write your feedback before submitting.');
+      Alert.alert(
+        'Empty Feedback',
+        'Please write your feedback before submitting.',
+      );
       return;
     }
 
+    setSubmitting(true);
+
     try {
-      setSubmitting(true);
-
-      const fullFeedback = {
-        ...feedbackData,
+      const response = await feedbackAPI.submit({
         rating: rating,
-        feedback: feedbackText.trim(),
-        timestamp: new Date().toISOString(),
-        type: 'app_feedback',
-      };
+        suggestion: feedbackText.trim(),
+      });
 
-      console.log('Submitting feedback:', fullFeedback);
-
-      // TODO: Replace with actual API call when endpoint is available
-      // const response = await userAPI.submitFeedback(fullFeedback);
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log('Feedback submitted successfully:', response);
 
       Alert.alert(
-        'Thank You!',
+        'Thank You! 🎉',
         'Your feedback has been submitted successfully. We appreciate your input!',
-        [
-          {
-            text: 'OK',
-            onPress: () => navigation.navigate('HomeNavigataor'),
-          }
-        ]
+        [{text: 'OK', onPress: () => navigation.navigate('HomeNavigataor')}],
       );
     } catch (err) {
       console.error('Error submitting feedback:', err);
-      Alert.alert('Error', 'Failed to submit feedback. Please try again.');
+
+      const message =
+        err?.message === 'Request timeout'
+          ? 'Server is taking too long to respond. Please check your connection and try again.'
+          : err?.message || 'Failed to submit feedback. Please try again.';
+
+      Alert.alert('Submission Failed', message, [{text: 'OK'}]);
     } finally {
       setSubmitting(false);
     }
@@ -74,16 +72,35 @@ const FeedbackText = () => {
   const handleSkip = () => {
     Alert.alert(
       'Skip Feedback?',
-      'Your rating has been recorded. Are you sure you want to skip providing detailed feedback?',
+      'Are you sure you want to skip providing detailed feedback?',
       [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Skip',
-          onPress: () => navigation.navigate('HomeNavigataor'),
-        }
-      ]
+        {text: 'Cancel', style: 'cancel'},
+        {text: 'Skip', onPress: () => navigation.navigate('HomeNavigataor')},
+      ],
     );
   };
+
+  const handleChipPress = chip => {
+    if (submitting) return;
+    // If already selected, deselect and clear
+    if (selectedChip === chip) {
+      setSelectedChip(null);
+      setFeedbackText('');
+      return;
+    }
+    setSelectedChip(chip);
+    setFeedbackText(`${chip}: `);
+  };
+
+  const chips = [
+    'App Performance',
+    'User Interface',
+    'Features',
+    'Bug Report',
+    'Suggestions',
+  ];
+
+  const isSubmitEnabled = feedbackText.trim().length > 0 && !submitting;
 
   return (
     <View style={styles.container}>
@@ -91,26 +108,26 @@ const FeedbackText = () => {
       <ImageBackground
         source={require('../../../assets/vector_1.png')}
         style={styles.vector}
-        resizeMode="stretch"
-      >
+        resizeMode="stretch">
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={{ flex: 1 }}
-        >
+          style={{flex: 1}}>
           <ScrollView
-            contentContainerStyle={{ flexGrow: 1 }}
-            keyboardShouldPersistTaps="handled"
-          >
+            contentContainerStyle={{flexGrow: 1}}
+            keyboardShouldPersistTaps="handled">
             {/* Header */}
             <View style={styles.header}>
               <TouchableOpacity
                 onPress={() => navigation.goBack()}
-                disabled={submitting}
-              >
-                <MaterialIcons name="arrow-back-ios" color={'#0D0D26'} size={25} />
+                disabled={submitting}>
+                <MaterialIcons
+                  name="arrow-back-ios"
+                  color={'#0D0D26'}
+                  size={25}
+                />
               </TouchableOpacity>
               <Text style={styles.headerText}>Feedback</Text>
-              <View style={{ width: 25 }} />
+              <View style={{width: 25}} />
             </View>
 
             {/* Content */}
@@ -119,15 +136,46 @@ const FeedbackText = () => {
               <View style={styles.ratingDisplay}>
                 <Text style={styles.ratingLabel}>Your Rating:</Text>
                 <View style={styles.starsContainer}>
-                  {[1, 2, 3, 4, 5].map((star) => (
+                  {[1, 2, 3, 4, 5].map(star => (
                     <Ionicons
                       key={star}
                       name={star <= rating ? 'star' : 'star-outline'}
                       size={30}
                       color={star <= rating ? '#FFD700' : '#E0E0E0'}
-                      style={{ marginHorizontal: 2 }}
+                      style={{marginHorizontal: 2}}
                     />
                   ))}
+                </View>
+              </View>
+
+              {/* Suggestion Chips */}
+              <View style={styles.suggestionsSection}>
+                <Text style={styles.suggestionsTitle}>
+                  What would you like to tell us about?
+                </Text>
+                <View style={styles.suggestionChips}>
+                  {chips.map((chip, index) => {
+                    const isSelected = selectedChip === chip;
+                    return (
+                      <TouchableOpacity
+                        key={index}
+                        style={[
+                          styles.suggestionChip,
+                          isSelected && styles.suggestionChipSelected,
+                        ]}
+                        onPress={() => handleChipPress(chip)}
+                        disabled={submitting}
+                        activeOpacity={0.7}>
+                        <Text
+                          style={[
+                            styles.suggestionChipText,
+                            isSelected && styles.suggestionChipTextSelected,
+                          ]}>
+                          {chip}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               </View>
 
@@ -144,43 +192,27 @@ const FeedbackText = () => {
                   numberOfLines={8}
                   textAlignVertical="top"
                   value={feedbackText}
-                  onChangeText={setFeedbackText}
+                  onChangeText={text => {
+                    if (text.length <= 500) {
+                      setFeedbackText(text);
+                      // Deselect chip if user manually edits away from chip prefix
+                      if (
+                        selectedChip &&
+                        !text.startsWith(`${selectedChip}:`)
+                      ) {
+                        setSelectedChip(null);
+                      }
+                    }
+                  }}
                   editable={!submitting}
                 />
-                <Text style={styles.characterCount}>
+                <Text
+                  style={[
+                    styles.characterCount,
+                    feedbackText.length >= 500 && styles.characterCountLimit,
+                  ]}>
                   {feedbackText.length}/500 characters
                 </Text>
-              </View>
-
-              {/* Suggestions */}
-              <View style={styles.suggestionsSection}>
-                <Text style={styles.suggestionsTitle}>
-                  What would you like to tell us about?
-                </Text>
-                <View style={styles.suggestionChips}>
-                  {[
-                    'App Performance',
-                    'User Interface',
-                    'Features',
-                    'Bug Report',
-                    'Suggestions',
-                  ].map((suggestion, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={styles.suggestionChip}
-                      onPress={() => {
-                        if (!submitting) {
-                          setFeedbackText(prev =>
-                            prev ? `${prev}\n${suggestion}: ` : `${suggestion}: `
-                          );
-                        }
-                      }}
-                      disabled={submitting}
-                    >
-                      <Text style={styles.suggestionChipText}>{suggestion}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
               </View>
 
               {/* Action Buttons */}
@@ -189,18 +221,18 @@ const FeedbackText = () => {
                   style={styles.skipButton}
                   onPress={handleSkip}
                   disabled={submitting}
-                >
+                  activeOpacity={0.7}>
                   <Text style={styles.skipButtonText}>Skip</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={[
                     styles.submitButton,
-                    submitting && styles.submitButtonDisabled,
+                    !isSubmitEnabled && styles.submitButtonDisabled,
                   ]}
                   onPress={handleSubmit}
-                  disabled={submitting}
-                >
+                  disabled={!isSubmitEnabled}
+                  activeOpacity={0.8}>
                   {submitting ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
@@ -244,16 +276,16 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: '5%',
-    paddingTop: '5%',
+    paddingTop: '3%',
   },
   ratingDisplay: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 20,
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: {width: 0, height: 2},
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
@@ -267,13 +299,50 @@ const styles = StyleSheet.create({
   starsContainer: {
     flexDirection: 'row',
   },
+  suggestionsSection: {
+    marginBottom: 16,
+  },
+  suggestionsTitle: {
+    fontFamily: 'Nunito-SemiBold',
+    fontSize: hp(1.8),
+    color: '#333',
+    marginBottom: 12,
+  },
+  suggestionChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  suggestionChip: {
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#E0E0E0',
+    borderRadius: 20,
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    marginRight: 10,
+    marginBottom: 10,
+    elevation: 1,
+  },
+  suggestionChipSelected: {
+    backgroundColor: '#130160',
+    borderColor: '#130160',
+    elevation: 3,
+  },
+  suggestionChipText: {
+    fontFamily: 'Nunito-SemiBold',
+    fontSize: hp(1.6),
+    color: '#130160',
+  },
+  suggestionChipTextSelected: {
+    color: '#fff',
+  },
   feedbackSection: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 20,
     marginBottom: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: {width: 0, height: 2},
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
@@ -292,7 +361,7 @@ const styles = StyleSheet.create({
     fontSize: hp(1.9),
     fontFamily: 'Nunito-Regular',
     color: '#000',
-    minHeight: hp(20),
+    minHeight: hp(18),
     maxHeight: hp(25),
   },
   characterCount: {
@@ -302,33 +371,8 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     marginTop: 8,
   },
-  suggestionsSection: {
-    marginBottom: 20,
-  },
-  suggestionsTitle: {
-    fontFamily: 'Nunito-SemiBold',
-    fontSize: hp(1.8),
-    color: '#666',
-    marginBottom: 12,
-  },
-  suggestionChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  suggestionChip: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 20,
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    marginRight: 10,
-    marginBottom: 10,
-  },
-  suggestionChipText: {
-    fontFamily: 'Nunito-SemiBold',
-    fontSize: hp(1.6),
-    color: '#130160',
+  characterCountLimit: {
+    color: '#FF4444',
   },
   actionButtons: {
     flexDirection: 'row',
@@ -343,6 +387,8 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     marginRight: 10,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
   },
   skipButtonText: {
     fontFamily: 'Nunito-Bold',
@@ -350,15 +396,22 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   submitButton: {
-    flex: 1,
+    flex: 2,
     backgroundColor: '#130160',
     borderRadius: 10,
     paddingVertical: 15,
     marginLeft: 10,
     alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#130160',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
   },
   submitButtonDisabled: {
-    opacity: 0.6,
+    opacity: 0.45,
+    elevation: 0,
+    shadowOpacity: 0,
   },
   submitButtonText: {
     fontFamily: 'Nunito-Bold',

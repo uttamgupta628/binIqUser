@@ -192,12 +192,12 @@ const CustomDrawer = ({ isOpen, closeDrawer }) => {
                   <Text style={styles.statLabel}>Scans</Text>
                 </View>
                 <View style={styles.statDivider} />
-                <View style={styles.statItem}>
+                {/* <View style={styles.statItem}>
                   <Text style={styles.statValue}>
                     {userProfile.promotions?.length || 0}
                   </Text>
                   <Text style={styles.statLabel}>Promos</Text>
-                </View>
+                </View> */}
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
                   <Text style={styles.statValue}>

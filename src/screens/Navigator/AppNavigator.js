@@ -36,6 +36,8 @@ import SelectUserRole from '../OnBoardingScreens/SelectUserRole';
 import SelectPlan from '../OnBoardingScreens/SelectPlan';
 import SelectPremiumPlan from '../OnBoardingScreens/SelectPremiumPlan'; 
 import FreeSubscription from '../SubscriptionScreens/FreeSubscription';
+
+import SearchResults from '../MainScreens/SearchScreen'; 
 import PayWall from '../SubscriptionScreens/PayWall';
 import EditProfileScreen from '../MainScreens/EditProfileScreen';
 
@@ -227,6 +229,11 @@ const AppNavigator = () => {
           component={EditProfileScreen}
           options={{headerShown: false}}
         />
+        <Stack.Screen
+  name="SearchResults"
+  component={SearchResults}
+  options={{ headerShown: false }}
+/>
       </Stack.Navigator>
     </NavigationContainer>
   );

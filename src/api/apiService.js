@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Base API URL
-const API_BASE_URL = 'http://192.168.1.4:3001';
+const API_BASE_URL = 'https://biniq.onrender.com';
 
 // API Configuration
 const API_CONFIG = {
@@ -360,7 +360,12 @@ export const storesAPI = {
  */
 export const promotionsAPI = {
   create: data => apiService.post(API_ENDPOINTS.promotions.create, data),
-  getAll: () => apiService.get(API_ENDPOINTS.promotions.getAll),
+
+  // Pass no params = get ALL promotions (public feed)
+  // Pass { user_id } = get only that store owner's promotions
+  getAll: (params = {}) =>
+    apiService.get(API_ENDPOINTS.promotions.getAll, params),
+
   update: (id, data) =>
     apiService.put(API_ENDPOINTS.promotions.update(id), data),
   delete: id => apiService.delete(API_ENDPOINTS.promotions.delete(id)),

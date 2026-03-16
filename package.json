@@ -12,6 +12,7 @@
   "dependencies": {
     "@rajeshsmallarc/react-native-creditcard": "^1.0.1",
     "@react-native-async-storage/async-storage": "^2.2.0",
+    "@react-native-community/geolocation": "^3.4.0",
     "@react-native-community/slider": "^4.5.3",
     "@react-native-masked-view/masked-view": "^0.3.1",
     "@react-navigation/bottom-tabs": "^6.6.1",
@@ -52,6 +53,7 @@
     "react-native-svg-transformer": "^1.5.0",
     "react-native-tab-view": "^3.5.2",
     "react-native-vector-icons": "^10.2.0",
+    "react-native-webview": "^13.6.4",
     "victory-native": "^41.12.1"
   },
   "devDependencies": {

@@ -396,58 +396,7 @@ export default function EditProfileScreen() {
         <View style={styles.divider} />
 
         {/* Card Information */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Card Information</Text>
-
-          <Text style={styles.label}>Card Number</Text>
-          <View style={styles.inputWrapper}>
-            <TextInput
-              placeholder="Enter card number" value={cardNumber}
-              onChangeText={setCardNumber} style={styles.textInput}
-              placeholderTextColor={'gray'} keyboardType="numeric" maxLength={16}
-            />
-          </View>
-
-          <Text style={styles.label}>Cardholder Name</Text>
-          <View style={styles.inputWrapper}>
-            <TextInput
-              placeholder="Enter name" value={cardholderName}
-              onChangeText={setCardholderName} style={styles.textInput}
-              placeholderTextColor={'gray'}
-            />
-          </View>
-
-          <View style={styles.expiryRow}>
-            <View style={styles.monthDropContainer}>
-              <DropDownPicker
-                open={openMonth} value={expiryMonth} items={months}
-                setOpen={setOpenMonth} setValue={setExpiryMonth}
-                placeholder="MM" style={styles.dropdown}
-                textStyle={styles.dropdownText}
-                dropDownContainerStyle={styles.dropdownContainerStyle}
-                ArrowDownIconComponent={() => <SimpleLineIcons name="arrow-down" size={20} color="#000" />}
-              />
-            </View>
-            <View style={styles.monthDropContainer}>
-              <DropDownPicker
-                open={openYear} value={expiryYear} items={years}
-                setOpen={setOpenYear} setValue={setExpiryYear}
-                placeholder="YYYY" style={styles.dropdown}
-                textStyle={styles.dropdownText}
-                dropDownContainerStyle={styles.dropdownContainerStyle}
-                ArrowDownIconComponent={() => <SimpleLineIcons name="arrow-down" size={20} color="#000" />}
-              />
-            </View>
-          </View>
-
-          <View style={styles.inputContainer}>
-            <TextInput
-              placeholder="CVC" keyboardType="numeric" maxLength={4}
-              value={cvc} onChangeText={setCvc}
-              style={styles.input} placeholderTextColor="gray"
-            />
-          </View>
-        </View>
+       
 
         {/* Save Button */}
         <TouchableOpacity

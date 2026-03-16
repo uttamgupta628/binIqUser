@@ -98,7 +98,7 @@ const Dashboard3 = ({percentage = 70}) => {
           source={
             userProfile?.profile_image
               ? {uri: userProfile.profile_image}
-              : require('../../../assets/dashboard_profile.png')
+              : require('../../../assets/profile_img.png')
           }
           style={styles.profileImage}
         />

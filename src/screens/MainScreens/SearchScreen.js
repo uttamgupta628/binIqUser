@@ -1,861 +1,372 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, {useState, useRef, useEffect} from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  FlatList,
-  Image,
-  Modal,
-  StyleSheet,
-  Dimensions,
-  StatusBar,
-  ImageBackground,
-  Pressable,
-  ScrollView,
-  ActivityIndicator,
-  Alert,
+  View, Text, StyleSheet, TouchableOpacity, Alert, Dimensions,
+  StatusBar, ActivityIndicator, Animated, Modal, FlatList,
 } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import Ionicons from 'react-native-vector-icons/Ionicons';
+import {useNavigation} from '@react-navigation/native';
+import QRCodeScanner from 'react-native-qrcode-scanner';
+import {RNCamera} from 'react-native-camera';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import EvilIcons from 'react-native-vector-icons/EvilIcons';
-import Slider from '@react-native-community/slider';
-import { Star, Heart } from "lucide-react-native";
-import SearchIcon from '../../../assets/SearchIcon.svg';
-import CameraIcon from '../../../assets/CameraIcon.svg';
-import FilterIcon from '../../../assets/FilterIcon.svg';
-import { storesAPI } from '../../api/apiService';
+import {scanAPI, categoriesAPI} from '../../api/apiService';
 
-const { width, height } = Dimensions.get('window');
+const {width, height} = Dimensions.get('window');
+const SCAN_AREA    = width * 0.62;
+const BOTTOM_H     = height * 0.35;
+const DARK         = 'rgba(0,0,0,0.72)';
+const CORNER_COLOR = '#2CCCA6';
+const CORNER_SIZE  = 26;
+const CORNER_W     = 3;
 
-const wp = (percentage) => (width * percentage) / 100;
-const hp = (percentage) => (height * percentage) / 100;
+const ScanScreen = () => {
+  const navigation   = useNavigation();
+  const scannerRef   = useRef(null);
+  const isProcessing = useRef(false);
 
-const RECENT_SEARCHES_KEY = '@recent_searches';
-const MAX_RECENT_SEARCHES = 10;
+  const [saving, setSaving]                   = useState(false);
+  const [scanDone, setScanDone]               = useState(false);
+  const [scannedValue, setScannedValue]       = useState('');
+  const [scansRemaining, setScansRemaining]   = useState(null);
+  const [torchOn, setTorchOn]                 = useState(false);
 
-const SearchScreen = () => {
-  const navigation = useNavigation();
-  
-  // State
-  const [loading, setLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [recentSearches, setRecentSearches] = useState([]);
-  const [topStores, setTopStores] = useState([]);
-  const [favoriteStores, setFavoriteStores] = useState([]);
-  const [categories, setCategories] = useState([]);
-  
-  // Filter Modal State
-  const [showFilterModal, setShowFilterModal] = useState(false);
-  const [selectedCategories, setSelectedCategories] = useState([]);
-  const [activeFilter, setActiveFilter] = useState('active');
-  const [minPrice, setMinPrice] = useState('');
-  const [maxPrice, setMaxPrice] = useState('');
-  const [priceValue, setPriceValue] = useState(0);
-  const [categorySearch, setCategorySearch] = useState('');
+  // Category picker state
+  const [categories, setCategories]           = useState([]);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [pendingQrData, setPendingQrData]     = useState(null);
 
-  // Fetch data on screen focus
-  useFocusEffect(
-    useCallback(() => {
-      loadRecentSearches();
-      fetchTopStores();
-      fetchCategories();
-      fetchFavorites();
-    }, [])
-  );
+  const scanLineAnim = useRef(new Animated.Value(0)).current;
 
-  const loadRecentSearches = async () => {
+  // Load categories on mount
+  useEffect(() => {
+    categoriesAPI.getAll()
+      .then(res => {
+        const raw = res?.categories || res || [];
+        setCategories(Array.isArray(raw) ? raw : []);
+      })
+      .catch(() => setCategories([]));
+  }, []);
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scanLineAnim, {toValue: 1, duration: 1600, useNativeDriver: true}),
+        Animated.timing(scanLineAnim, {toValue: 0, duration: 1600, useNativeDriver: true}),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+
+  const scanLineY = scanLineAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, SCAN_AREA - 3],
+  });
+
+  const onSuccess = e => {
+    if (isProcessing.current || scanDone || saving) return;
+    const qrData = e?.data;
+    if (!qrData) return;
+
+    console.log('🔍 Scanned:', qrData);
+    isProcessing.current = true;
+    setScanDone(true);
+    setScannedValue(qrData);
+    setPendingQrData(qrData);
+
+    // Show category picker instead of saving immediately
+    setShowCategoryModal(true);
+  };
+
+  const saveScan = async (qrData, categoryName) => {
     try {
-      const searches = await AsyncStorage.getItem(RECENT_SEARCHES_KEY);
-      if (searches) {
-        setRecentSearches(JSON.parse(searches));
+      setSaving(true);
+      const response = await scanAPI.recordScan(qrData, qrData, categoryName, null);
+
+      if (response?.success) {
+        setScansRemaining(response.scans_remaining);
+        Alert.alert(
+          '✅ Saved!',
+          `Category: ${categoryName}\nUsed: ${response.total_scans}  |  Left: ${response.scans_remaining}`,
+          [
+            {text: 'Scan Again', onPress: resetScanner},
+            {text: 'View Library', onPress: () => navigation.navigate('MyLibrary')},
+          ],
+        );
+      } else if (response?.message?.toLowerCase().includes('limit')) {
+        Alert.alert('⚠️ Limit Reached', 'You have used all your scans.', [
+          {text: 'OK', onPress: () => navigation.goBack()},
+        ]);
+      } else {
+        Alert.alert('Failed', response?.message || 'Could not save.', [
+          {text: 'Try Again', onPress: resetScanner},
+        ]);
       }
     } catch (err) {
-      console.error('Error loading recent searches:', err);
-    }
-  };
-
-  const saveRecentSearch = async (query) => {
-    try {
-      if (!query.trim()) return;
-      
-      let searches = [...recentSearches];
-      
-      // Remove if already exists
-      searches = searches.filter(s => s.toLowerCase() !== query.toLowerCase());
-      
-      // Add to beginning
-      searches.unshift(query);
-      
-      // Limit to MAX_RECENT_SEARCHES
-      searches = searches.slice(0, MAX_RECENT_SEARCHES);
-      
-      await AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(searches));
-      setRecentSearches(searches);
-    } catch (err) {
-      console.error('Error saving recent search:', err);
-    }
-  };
-
-  const removeRecentSearch = async (query) => {
-    try {
-      const searches = recentSearches.filter(s => s !== query);
-      await AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(searches));
-      setRecentSearches(searches);
-    } catch (err) {
-      console.error('Error removing recent search:', err);
-    }
-  };
-
-  const clearRecentSearches = async () => {
-    try {
-      await AsyncStorage.removeItem(RECENT_SEARCHES_KEY);
-      setRecentSearches([]);
-    } catch (err) {
-      console.error('Error clearing recent searches:', err);
-    }
-  };
-
-  const fetchTopStores = async () => {
-    try {
-      setLoading(true);
-      const response = await storesAPI.getAll();
-      
-      if (response && response.stores) {
-        // Get top rated stores
-        const sortedStores = [...response.stores].sort((a, b) => {
-          const ratingA = parseFloat(a.rating || 0);
-          const ratingB = parseFloat(b.rating || 0);
-          return ratingB - ratingA;
-        });
-        
-        setTopStores(sortedStores.slice(0, 6)); // Top 6 stores
-      } else if (response && Array.isArray(response)) {
-        setTopStores(response.slice(0, 6));
-      }
-    } catch (err) {
-      console.error('Error fetching top stores:', err);
+      Alert.alert('Error', err?.message || 'Something went wrong.', [
+        {text: 'Try Again', onPress: resetScanner},
+      ]);
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
-  const fetchCategories = async () => {
-    // Mock categories - replace with API call when available
-    const mockCategories = [
-      'Books', 'Pan', 'Bedsheet', 'Bins', 'Chopper', 'Clocks',
-      'Electronics', 'Clothing', 'Furniture', 'Toys', 'Kitchen', 'Beauty'
-    ];
-    setCategories(mockCategories);
+  const handleCategorySelect = cat => {
+    setShowCategoryModal(false);
+    const categoryName = cat?.name || cat?.label || 'Uncategorized';
+    saveScan(pendingQrData, categoryName);
   };
 
-  const fetchFavorites = async () => {
-    try {
-      const response = await storesAPI.getFavorites();
-      if (response && response.favorites) {
-        const favoriteStoreIds = response.favorites
-          .filter(fav => fav.type === 'store' || fav.store_id)
-          .map(fav => fav.store_id || fav._id);
-        setFavoriteStores(favoriteStoreIds);
-      }
-    } catch (err) {
-      console.log('Could not fetch favorites:', err);
-    }
+  const handleSkipCategory = () => {
+    setShowCategoryModal(false);
+    saveScan(pendingQrData, 'Uncategorized');
   };
 
-  const handleSearch = () => {
-    if (searchQuery.trim()) {
-      saveRecentSearch(searchQuery.trim());
-      // Navigate to search results
-      navigation.navigate('SearchResults', {
-        query: searchQuery,
-        filters: {
-          categories: selectedCategories,
-          priceRange: { min: minPrice, max: maxPrice },
-          status: activeFilter,
-        }
-      });
-    }
-  };
-
-  const handleRecentSearchPress = (query) => {
-    setSearchQuery(query);
-    saveRecentSearch(query);
-    navigation.navigate('SearchResults', { query });
-  };
-
-  const handleStorePress = (store) => {
-    navigation.navigate('BinStore', { store });
-  };
-
-  const handleToggleFavorite = async (storeId) => {
-    try {
-      await storesAPI.favorite(storeId);
-      
-      setFavoriteStores(prev => {
-        if (prev.includes(storeId)) {
-          return prev.filter(id => id !== storeId);
-        } else {
-          return [...prev, storeId];
-        }
-      });
-    } catch (err) {
-      console.error('Error toggling favorite:', err);
-      Alert.alert('Error', 'Failed to update favorite');
-    }
-  };
-
-  const toggleCategory = (category) => {
-    setSelectedCategories(prevCategories =>
-      prevCategories.includes(category)
-        ? prevCategories.filter(c => c !== category)
-        : [...prevCategories, category]
-    );
-  };
-
-  const handleApplyFilters = () => {
-    setShowFilterModal(false);
-    
-    if (searchQuery.trim()) {
-      navigation.navigate('SearchResults', {
-        query: searchQuery,
-        filters: {
-          categories: selectedCategories,
-          priceRange: { min: minPrice || '0', max: maxPrice || '10000' },
-          status: activeFilter,
-        }
-      });
-    }
-  };
-
-  const handleResetFilters = () => {
-    setSelectedCategories([]);
-    setActiveFilter('active');
-    setMinPrice('');
-    setMaxPrice('');
-    setPriceValue(0);
-    setCategorySearch('');
-  };
-
-  const isFavorite = (storeId) => favoriteStores.includes(storeId);
-
-  const filteredCategories = categories.filter(cat =>
-    cat.toLowerCase().includes(categorySearch.toLowerCase())
-  );
-
-  const renderRecentSearch = ({ item }) => (
-    <View style={styles.recentSearchItem}>
-      <Ionicons name="time-outline" size={hp(3)} color="#95969D" />
-      <TouchableOpacity 
-        style={{ flex: 1, marginLeft: 15 }}
-        onPress={() => handleRecentSearchPress(item)}
-      >
-        <Text style={styles.recentSearchText}>{item}</Text>
-      </TouchableOpacity>
-      <TouchableOpacity onPress={() => removeRecentSearch(item)}>
-        <EvilIcons name="close" size={hp(3)} color="#666" />
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderPopularStore = ({ item }) => {
-    const storeId = item._id || item.id;
-    const isFav = isFavorite(storeId);
-
-    return (
-      <TouchableOpacity
-        style={styles.popularStoreItem}
-        onPress={() => handleStorePress(item)}
-      >
-        <View style={styles.storeImageContainer}>
-          <Image 
-            source={
-              item.store_image 
-                ? { uri: item.store_image }
-                : require('../../../assets/dummy_product.png')
-            } 
-            style={styles.storeImage} 
-          />
-        </View>
-        <View style={styles.storeInfo}>
-          <Text style={styles.storeName} numberOfLines={1}>
-            {item.store_name || item.title || 'Store'}
-          </Text>
-          <Text style={styles.storeLocation} numberOfLines={1}>
-            {item.location || item.address || 'Location'}
-          </Text>
-        </View>
-        <View style={styles.ratingContainer}>
-          <Text style={styles.reviews}>
-            {item.distance || '3-4KM'}{' '}
-          </Text>
-          <Star size={12} color="#FFD700" fill="#FFD700" />
-          <Text style={styles.rating}>{item.rating || '4.6'}</Text>
-          <TouchableOpacity 
-            style={styles.heartButton}
-            onPress={() => handleToggleFavorite(storeId)}
-          >
-            <Heart 
-              size={13} 
-              color="red" 
-              fill={isFav ? "red" : "transparent"}
-            />
-          </TouchableOpacity>
-        </View>
-      </TouchableOpacity>
-    );
+  const resetScanner = () => {
+    isProcessing.current = false;
+    setScanDone(false);
+    setScannedValue('');
+    setSaving(false);
+    setPendingQrData(null);
+    scannerRef.current?.reactivate();
   };
 
   return (
     <View style={styles.container}>
-      <StatusBar translucent={true} backgroundColor={'transparent'} />
-      <ImageBackground
-        source={require('../../../assets/vector_1.png')}
-        style={styles.vector}
-        resizeMode="stretch"
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerChild}>
-            <Pressable onPress={() => navigation.goBack()}>
-              <MaterialIcons name='arrow-back-ios' color={'#0D0D26'} size={25} />
-            </Pressable>
-            <Text style={styles.headerText}>Search</Text>
-          </View>
-        </View>
+      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
 
-        {/* Search Bar */}
-        <View style={styles.searchParent}>
-          <View style={styles.searchContainer}>
-            <View style={styles.cameraButton}>
-              <SearchIcon />
-            </View>
-            <TextInput 
-              style={styles.input} 
-              placeholder='Search stores, products...' 
-              placeholderTextColor={'#C4C4C4'}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              onSubmitEditing={handleSearch}
-              returnKeyType="search"
-            />
-            <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
-              <CameraIcon />
-            </TouchableOpacity>
-          </View>
-          <TouchableOpacity 
-            style={styles.menuButton} 
-            onPress={() => setShowFilterModal(true)}
-          >
-            <FilterIcon />
-          </TouchableOpacity>
-        </View>
+      {/* ── Category Picker Modal ── */}
+      <Modal
+        visible={showCategoryModal}
+        transparent
+        animationType="slide"
+        onRequestClose={handleSkipCategory}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Select Category</Text>
+            <Text style={styles.modalSubtitle}>Choose a category for this scan</Text>
 
-        <ScrollView 
-          style={styles.scrollView}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Recent Searches */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Recent Searches</Text>
-              {recentSearches.length > 0 && (
-                <TouchableOpacity onPress={clearRecentSearches}>
-                  <Text style={styles.clearText}>Clear All</Text>
+            <FlatList
+              data={categories}
+              keyExtractor={(item, index) => item._id || item.id || index.toString()}
+              style={styles.categoryList}
+              renderItem={({item}) => (
+                <TouchableOpacity
+                  style={styles.categoryItem}
+                  onPress={() => handleCategorySelect(item)}>
+                  <View style={styles.categoryDot} />
+                  <Text style={styles.categoryItemText}>
+                    {item.name || item.label || 'Unknown'}
+                  </Text>
+                  <MaterialIcons name="chevron-right" size={20} color="#999" />
                 </TouchableOpacity>
               )}
+              ListEmptyComponent={
+                <Text style={styles.noCategoryText}>No categories found</Text>
+              }
+            />
+
+            <TouchableOpacity style={styles.skipBtn} onPress={handleSkipCategory}>
+              <Text style={styles.skipBtnText}>Skip — Save as Uncategorized</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <QRCodeScanner
+        ref={scannerRef}
+        onRead={onSuccess}
+        vibrate={false}
+        reactivate={false}
+        showMarker={false}
+        cameraStyle={styles.camera}
+        containerStyle={styles.scannerContainer}
+        flashMode={
+          torchOn ? RNCamera.Constants.FlashMode.torch : RNCamera.Constants.FlashMode.off
+        }
+        cameraProps={{
+          captureAudio: false,
+          androidCameraPermissionOptions: {
+            title: 'Camera Permission',
+            message: 'BinIQ needs camera to scan products',
+            buttonPositive: 'Allow',
+            buttonNegative: 'Cancel',
+          },
+        }}
+        customMarker={
+          <View style={styles.markerOuter}>
+            <View style={styles.darkTop} />
+            <View style={styles.middleRow}>
+              <View style={styles.darkSide} />
+              <View style={styles.scanBox}>
+                <View style={[styles.corner, styles.cornerTL]} />
+                <View style={[styles.corner, styles.cornerTR]} />
+                <View style={[styles.corner, styles.cornerBL]} />
+                <View style={[styles.corner, styles.cornerBR]} />
+                {!scanDone && !saving && (
+                  <Animated.View style={[styles.scanLine, {transform: [{translateY: scanLineY}]}]} />
+                )}
+                {saving && (
+                  <View style={styles.centerOverlay}>
+                    <ActivityIndicator size="large" color="#2CCCA6" />
+                    <Text style={styles.savingText}>Saving...</Text>
+                  </View>
+                )}
+                {scanDone && !saving && !showCategoryModal && (
+                  <View style={styles.centerOverlay}>
+                    <MaterialIcons name="check-circle" size={52} color="#2CCCA6" />
+                  </View>
+                )}
+              </View>
+              <View style={styles.darkSide} />
             </View>
-            
-            {recentSearches.length > 0 ? (
-              <FlatList
-                data={recentSearches}
-                renderItem={renderRecentSearch}
-                keyExtractor={(item, index) => `${item}-${index}`}
-                scrollEnabled={false}
-              />
-            ) : (
-              <Text style={styles.noHistoryText}>
-                You don't have any search history
+
+            <View style={styles.darkBottom}>
+              <Text style={styles.instructionText}>
+                {saving
+                  ? 'Saving to your library...'
+                  : showCategoryModal
+                  ? '📂 Select a category...'
+                  : scanDone
+                  ? '✅ Scan complete!'
+                  : 'Point camera at a QR code or barcode'}
               </Text>
-            )}
-          </View>
 
-          {/* Top Stores */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Top Bin Stores</Text>
-            
-            {loading ? (
-              <ActivityIndicator size="large" color="#130160" />
-            ) : topStores.length > 0 ? (
-              <FlatList
-                data={topStores}
-                renderItem={renderPopularStore}
-                keyExtractor={(item, index) => item._id || item.id || index.toString()}
-                numColumns={3}
-                scrollEnabled={false}
-              />
-            ) : (
-              <Text style={styles.noHistoryText}>No stores available</Text>
-            )}
-          </View>
+              {scannedValue !== '' && !saving && (
+                <View style={styles.scannedValueBox}>
+                  <Text style={styles.scannedLabel}>SCANNED</Text>
+                  <Text style={styles.scannedValue} numberOfLines={2}>{scannedValue}</Text>
+                </View>
+              )}
 
-          <View style={{ height: 40 }} />
-        </ScrollView>
-
-        {/* Filter Modal */}
-        <Modal
-          visible={showFilterModal}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={() => setShowFilterModal(false)}
-        >
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              {/* Modal Header */}
-              <View style={styles.modalHeader}>
-                <TouchableOpacity onPress={() => setShowFilterModal(false)}>
-                  <Ionicons name="close" size={24} color="#000" />
+              <View style={styles.btnRow}>
+                <TouchableOpacity
+                  style={[styles.iconBtn, torchOn && styles.iconBtnActive]}
+                  onPress={() => setTorchOn(t => !t)}>
+                  <MaterialIcons
+                    name={torchOn ? 'flash-on' : 'flash-off'}
+                    size={20}
+                    color={torchOn ? '#fff' : '#2CCCA6'}
+                  />
                 </TouchableOpacity>
-                <Text style={styles.modalTitle}>Filters</Text>
-                <TouchableOpacity onPress={handleApplyFilters}>
-                  <Text style={styles.doneButton}>Done</Text>
+
+                {scanDone && !saving && (
+                  <TouchableOpacity style={styles.rescanBtn} onPress={resetScanner}>
+                    <MaterialIcons name="qr-code-scanner" size={18} color="#fff" />
+                    <Text style={styles.rescanText}>Scan Again</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  style={styles.libraryBtn}
+                  onPress={() => navigation.navigate('MyLibrary')}>
+                  <MaterialIcons name="library-books" size={16} color="#2CCCA6" />
+                  <Text style={styles.libraryBtnText}>My Library</Text>
+                  {scansRemaining !== null && (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{scansRemaining} left</Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
               </View>
-
-              <ScrollView showsVerticalScrollIndicator={false}>
-                {/* Category Search */}
-                <Text style={styles.filterLabel}>Search Categories</Text>
-                <TextInput
-                  style={styles.categoryInput}
-                  placeholder="Search categories..."
-                  placeholderTextColor="#999"
-                  value={categorySearch}
-                  onChangeText={setCategorySearch}
-                />
-
-                {/* Quick Filter */}
-                <Text style={styles.filterLabel}>Quick Filter</Text>
-                <View style={styles.quickFilters}>
-                  <View style={styles.quickFilterContainer}>
-                    {['active', 'sold', 'new'].map((filter) => (
-                      <TouchableOpacity
-                        key={filter}
-                        style={[
-                          styles.filterChip,
-                          activeFilter === filter && styles.activeFilterChip,
-                        ]}
-                        onPress={() => setActiveFilter(filter)}
-                      >
-                        <Text
-                          style={[
-                            styles.filterChipText,
-                            activeFilter === filter && styles.activeFilterChipText,
-                          ]}
-                        >
-                          {filter === 'active' ? 'Active Items' : 
-                           filter === 'sold' ? 'Sold Items' : 'New Arrivals'}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-
-                {/* Price Range */}
-                <Text style={styles.filterLabel}>Price Range</Text>
-                <View style={styles.priceInputs}>
-                  <TextInput
-                    style={styles.priceInput}
-                    placeholder="Min"
-                    keyboardType="numeric"
-                    placeholderTextColor={'#666'}
-                    value={minPrice}
-                    onChangeText={setMinPrice}
-                  />
-                  <TextInput
-                    style={styles.priceInput}
-                    placeholder="Max"
-                    keyboardType="numeric"
-                    placeholderTextColor={'#666'}
-                    value={maxPrice}
-                    onChangeText={setMaxPrice}
-                  />
-                </View>
-                <View style={styles.priceRangeContainer}>
-                  <Text style={styles.price}>${priceValue}</Text>
-                  <Text style={styles.price}>$10,000</Text>
-                </View>
-                <Slider
-                  style={styles.slider}
-                  minimumValue={0}
-                  maximumValue={10000}
-                  step={100}
-                  value={priceValue}
-                  onValueChange={setPriceValue}
-                  minimumTrackTintColor="#14BA9C"
-                  maximumTrackTintColor="#E4E5E7"
-                  thumbTintColor="#14BA9C"
-                />
-
-                {/* Categories */}
-                <Text style={styles.filterLabel}>Categories</Text>
-                <View style={styles.categoriesContainer}>
-                  {filteredCategories.map((category) => (
-                    <TouchableOpacity
-                      key={category}
-                      style={[
-                        styles.categoryChip,
-                        selectedCategories.includes(category) && styles.selectedCategoryChip,
-                      ]}
-                      onPress={() => toggleCategory(category)}
-                    >
-                      <Text style={styles.categoryChipText}>{category}</Text>
-                      {selectedCategories.includes(category) && (
-                        <Ionicons name="close" size={16} color="#007AFF" style={{ marginLeft: 8 }} />
-                      )}
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {/* Action Buttons */}
-                <View style={styles.buttonContainer}>
-                  <TouchableOpacity
-                    style={styles.resetButton}
-                    onPress={handleResetFilters}
-                  >
-                    <Text style={styles.resetButtonText}>Reset</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.applyButton}
-                    onPress={handleApplyFilters}
-                  >
-                    <Text style={styles.applyButtonText}>APPLY</Text>
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
             </View>
           </View>
-        </Modal>
-      </ImageBackground>
+        }
+      />
+
+      <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+        <MaterialIcons name="arrow-back-ios" size={22} color="#fff" />
+      </TouchableOpacity>
+      <View style={styles.titleContainer}>
+        <Text style={styles.title}>Scan Product</Text>
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#E6F3F5',
-  },
-  vector: {
-    flex: 1,
-    width: wp(100),
-  },
-  header: {
-    width: wp(100),
-    height: hp(7),
-    marginTop: '10%',
-    paddingHorizontal: '5%',
-  },
-  headerChild: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  headerText: {
-    fontFamily: 'Nunito-Bold',
-    fontSize: hp(3),
-    color: '#0D0140'
-  },
-  searchParent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: '3%',
-    marginVertical: '3%',
-  },
-  searchContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderRadius: 12,
-    marginRight: 10,
-    borderColor: '#356899',
-    height: hp(6.3),
-  },
-  cameraButton: {
-    padding: 10,
-  },
-  input: {
-    flex: 1,
-    fontSize: hp(2.2),
-    fontFamily: 'Nunito-Regular',
-    color: '#0D0140'
-  },
-  searchButton: {
-    padding: 10,
-  },
-  menuButton: {
-    backgroundColor: '#130160',
-    padding: 10,
-    borderRadius: 12,
-    height: hp(6.5),
-    width: wp(14),
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  scrollView: {
-    flex: 1,
-  },
-  section: {
-    marginHorizontal: '5%',
-    marginBottom: 20,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  sectionTitle: {
-    fontSize: hp(2.4),
-    fontFamily: 'Nunito-Bold',
-    marginVertical: '4%',
-    color: '#0D0D26'
-  },
-  clearText: {
-    fontFamily: 'Nunito-SemiBold',
-    fontSize: hp(1.8),
-    color: '#356899',
-    textDecorationLine: 'underline',
-  },
-  noHistoryText: {
-    color: '#666',
-    fontStyle: 'italic',
-    fontFamily: 'Nunito-Regular',
-    fontSize: hp(1.9),
-  },
-  recentSearchItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: '4.5%',
-    paddingHorizontal: '2%',
-    borderBottomWidth: 1,
-    borderColor: '#CACBCE'
-  },
-  recentSearchText: {
-    fontFamily: 'Nunito-Regular',
-    color: '#95969D',
-    fontSize: hp(2.1)
-  },
-  popularStoreItem: {
-    backgroundColor: '#FFFFFF',
-    padding: 8,
-    borderRadius: 8,
-    width: (wp(85)) / 3,
-    marginVertical: '2%',
-    marginHorizontal: '1%',
-    borderWidth: 0.5,
-    borderColor: '#C4C4C4',
-    height: hp(22)
-  },
-  storeImageContainer: {
+  container:        {flex: 1, backgroundColor: '#000'},
+  scannerContainer: {flex: 1},
+  camera:           {height},
+  markerOuter:      {width, height},
+  darkTop: {
     width: '100%',
-    height: '60%'
+    height: (height - SCAN_AREA - BOTTOM_H) / 2,
+    backgroundColor: DARK,
   },
-  storeImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 5,
+  middleRow:  {flexDirection: 'row', width: '100%', height: SCAN_AREA},
+  darkSide:   {flex: 1, backgroundColor: DARK},
+  darkBottom: {
+    width: '100%', height: BOTTOM_H, backgroundColor: DARK,
+    alignItems: 'center', paddingTop: 20, paddingHorizontal: 24,
   },
-  storeInfo: {
-    width: '100%',
-    height: '23%'
+  scanBox: {width: SCAN_AREA, height: SCAN_AREA, backgroundColor: 'transparent', overflow: 'hidden'},
+  corner:   {position: 'absolute', width: CORNER_SIZE, height: CORNER_SIZE},
+  cornerTL: {top: 0, left: 0,   borderTopWidth: CORNER_W,    borderLeftWidth: CORNER_W,  borderColor: CORNER_COLOR, borderTopLeftRadius: 4},
+  cornerTR: {top: 0, right: 0,  borderTopWidth: CORNER_W,    borderRightWidth: CORNER_W, borderColor: CORNER_COLOR, borderTopRightRadius: 4},
+  cornerBL: {bottom: 0, left: 0,  borderBottomWidth: CORNER_W, borderLeftWidth: CORNER_W,  borderColor: CORNER_COLOR, borderBottomLeftRadius: 4},
+  cornerBR: {bottom: 0, right: 0, borderBottomWidth: CORNER_W, borderRightWidth: CORNER_W, borderColor: CORNER_COLOR, borderBottomRightRadius: 4},
+  scanLine: {
+    position: 'absolute', left: 0, right: 0, height: 2,
+    backgroundColor: '#2CCCA6', elevation: 4,
   },
-  storeName: {
-    fontFamily: 'DMSans-SemiBold',
-    color: '#130160',
-    fontSize: hp(1.8)
+  centerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center', alignItems: 'center',
   },
-  storeLocation: {
-    fontFamily: 'DMSans-SemiBold',
-    color: '#14BA9C',
-    fontSize: hp(1.5)
+  savingText:      {color: '#2CCCA6', marginTop: 8, fontSize: 13, fontWeight: '600'},
+  instructionText: {color: '#fff', fontSize: 14, textAlign: 'center', opacity: 0.9, marginBottom: 14},
+  scannedValueBox: {
+    backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 8,
+    padding: 10, width: '100%', marginBottom: 14,
+    borderLeftWidth: 3, borderLeftColor: '#2CCCA6',
   },
-  ratingContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    width: '100%'
+  scannedLabel: {color: '#2CCCA6', fontSize: 10, fontWeight: '700', marginBottom: 4, letterSpacing: 1},
+  scannedValue: {color: '#fff', fontSize: 13},
+  btnRow: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 10, flexWrap: 'wrap', justifyContent: 'center',
   },
-  rating: {
-    fontSize: hp(1.5),
-    fontWeight: "bold",
-    color: '#000',
-    marginLeft: 2,
-  },
-  reviews: {
-    fontSize: hp(1.4),
-    color: "#000"
-  },
-  heartButton: {
-    position: "absolute",
-    right: 0,
-  },
-  // Filter Modal
-  modalContainer: {
-    flex: 1,
+  iconBtn:       {width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: '#2CCCA6', justifyContent: 'center', alignItems: 'center'},
+  iconBtnActive: {backgroundColor: '#2CCCA6'},
+  rescanBtn:     {flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#2CCCA6', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10},
+  rescanText:    {color: '#fff', fontWeight: 'bold', fontSize: 14},
+  libraryBtn:    {flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: '#2CCCA6', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10},
+  libraryBtnText:{color: '#2CCCA6', fontSize: 14, fontWeight: '600'},
+  badge:         {marginLeft: 4, backgroundColor: '#2CCCA6', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2},
+  badgeText:     {color: '#fff', fontSize: 10, fontWeight: 'bold'},
+  backBtn:       {position: 'absolute', top: 50, left: 16, padding: 8, zIndex: 10},
+  titleContainer:{position: 'absolute', top: 50, left: 0, right: 0, alignItems: 'center', zIndex: 9},
+  title:         {color: '#fff', fontSize: 18, fontWeight: 'bold'},
+
+  // Modal styles
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
-  modalContent: {
-    backgroundColor: 'white',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    maxHeight: '85%',
+  modalSheet: {
+    backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 20, paddingBottom: 34, maxHeight: height * 0.7,
   },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
+  modalHandle: {
+    width: 40, height: 4, backgroundColor: '#E0E0E0',
+    borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 16,
   },
-  modalTitle: {
-    fontSize: hp(2.3),
-    fontFamily: 'Nunito-Bold',
-    color: '#000',
+  modalTitle:    {fontSize: 18, fontFamily: 'Nunito-Bold', color: '#130160', marginBottom: 4},
+  modalSubtitle: {fontSize: 13, fontFamily: 'Nunito-Regular', color: '#999', marginBottom: 16},
+  categoryList:  {maxHeight: height * 0.4},
+  categoryItem: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
   },
-  doneButton: {
-    fontFamily: 'Nunito-SemiBold',
-    color: '#356899',
-    fontSize: hp(2)
+  categoryDot:      {width: 10, height: 10, borderRadius: 5, backgroundColor: '#2CCCA6', marginRight: 12},
+  categoryItemText: {flex: 1, fontSize: 15, fontFamily: 'Nunito-SemiBold', color: '#130160'},
+  noCategoryText:   {textAlign: 'center', color: '#999', paddingVertical: 30, fontFamily: 'Nunito-Regular'},
+  skipBtn: {
+    marginTop: 16, paddingVertical: 14, borderRadius: 10,
+    borderWidth: 1, borderColor: '#E0E0E0', alignItems: 'center',
   },
-  filterLabel: {
-    fontSize: hp(2),
-    fontFamily: 'Nunito-Bold',
-    color: '#524B6B',
-    marginVertical: '3%'
-  },
-  categoryInput: {
-    height: hp(6.1),
-    borderColor: '#AFB0B6',
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 15,
-    fontSize: hp(2.1),
-    fontFamily: 'Nunito-SemiBold',
-    color: '#333',
-    marginBottom: '4%'
-  },
-  quickFilters: {
-    marginBottom: 15,
-  },
-  quickFilterContainer: {
-    width: '100%',
-    height: hp(5),
-    flexDirection: 'row',
-    borderRadius: 20,
-    backgroundColor: '#f5f5f5'
-  },
-  filterChip: {
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#f5f5f5',
-    width: '33.33%',
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  activeFilterChip: {
-    backgroundColor: '#00BFA5',
-  },
-  filterChipText: {
-    color: '#666',
-    fontSize: hp(1.7),
-    fontFamily: 'Nunito-SemiBold'
-  },
-  activeFilterChipText: {
-    color: 'white',
-  },
-  priceInputs: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  priceInput: {
-    width: '48%',
-    paddingHorizontal: '3%',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    color: '#000',
-    height: hp(6)
-  },
-  priceRangeContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  price: {
-    fontFamily: 'Nunito-Bold',
-    fontSize: hp(2),
-    color: '#14BA9C'
-  },
-  slider: {
-    width: '100%',
-    marginBottom: 15,
-  },
-  categoriesContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 20,
-  },
-  categoryChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EAEAEA',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 10,
-    marginBottom: 10,
-  },
-  selectedCategoryChip: {
-    backgroundColor: '#D9E6F2',
-  },
-  categoryChipText: {
-    fontSize: 14,
-    color: '#333',
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 20,
-  },
-  resetButton: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  resetButtonText: {
-    color: '#FF6C6C',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  applyButton: {
-    flex: 1,
-    backgroundColor: '#001B6E',
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  applyButtonText: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '500',
-  },
+  skipBtnText: {color: '#999', fontSize: 14, fontFamily: 'Nunito-SemiBold'},
 });
 
-export default SearchScreen;
+export default ScanScreen;

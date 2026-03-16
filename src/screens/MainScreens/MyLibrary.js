@@ -1,25 +1,15 @@
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import React, {useState, useCallback} from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  FlatList,
-  Dimensions,
-  ImageBackground,
-  StatusBar,
-  Pressable,
-  Image,
-  ActivityIndicator,
-  Alert,
+  View, Text, StyleSheet, TouchableOpacity, FlatList, Dimensions,
+  ImageBackground, StatusBar, Pressable, Image, ActivityIndicator, Alert,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import {Star, Heart} from 'lucide-react-native';
+import {Star} from 'lucide-react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import PieGraph from '../../Components/PieGraph';
 import * as Progress from 'react-native-progress';
-import {userAPI, productsAPI} from '../../api/apiService';
+import {userAPI, productsAPI, categoriesAPI} from '../../api/apiService';
 
 const {width, height} = Dimensions.get('window');
 const wp = percentage => (width * percentage) / 100;
@@ -62,6 +52,45 @@ const getDaysRemaining = dateStr => {
   return Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
 };
 
+const parseScans = scansUsed => {
+  if (!Array.isArray(scansUsed)) return [];
+  return scansUsed.map(item => {
+    if (typeof item === 'string') {
+      try { return JSON.parse(item); }
+      catch { return null; }
+    }
+    return item;
+  }).filter(Boolean);
+};
+
+const calculateScanStats = (scans, categoryLookup = {}) => {
+  const colors = ['#4887F6', '#6F19C2', '#59C3CF', '#E2635E', '#FFBB36', '#14BA9C', '#FF9F40'];
+  const groupMap = {};
+
+  scans.forEach(scan => {
+    const resolvedCategory =
+      categoryLookup[scan.category_id] ||
+      categoryLookup[scan.category] ||
+      (scan.category && scan.category !== 'Uncategorized' ? scan.category : null);
+    const key = resolvedCategory || scan.product_name || 'Unknown';
+    if (!groupMap[key]) groupMap[key] = {count: 0, name: key};
+    groupMap[key].count++;
+  });
+
+  const total = scans.length || 1;
+  const categories = Object.values(groupMap)
+    .map((cat, i) => ({
+      name:       cat.name,
+      count:      cat.count,
+      percentage: Math.round((cat.count / total) * 100),
+      color:      colors[i % colors.length],
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  return {categories, topCategories: categories.slice(0, 3)};
+};
+
+// ── Expiry Banner ─────────────────────────────────────────────────────
 const ExpiryBanner = ({userProfile, planMeta}) => {
   const isFree     = getPlanKey(userProfile) === 'free';
   const expiryDate = userProfile?.subscription_end_time;
@@ -73,10 +102,10 @@ const ExpiryBanner = ({userProfile, planMeta}) => {
   const isExpired      = daysLeft !== null && daysLeft < 0;
   const isExpiringSoon = !isExpired && daysLeft !== null && daysLeft <= 7;
 
-  const bgColor    = isExpired ? '#FFEBEE' : isExpiringSoon ? '#FFF8E7' : planMeta.color + '12';
-  const borderColor= isExpired ? '#FF4444' : isExpiringSoon ? '#E8A020' : planMeta.color;
-  const iconName   = isExpired ? 'close-circle-outline' : isExpiringSoon ? 'warning-outline' : 'time-outline';
-  const iconColor  = isExpired ? '#FF4444' : isExpiringSoon ? '#E8A020' : planMeta.color;
+  const bgColor     = isExpired ? '#FFEBEE' : isExpiringSoon ? '#FFF8E7' : planMeta.color + '12';
+  const borderColor = isExpired ? '#FF4444' : isExpiringSoon ? '#E8A020' : planMeta.color;
+  const iconName    = isExpired ? 'close-circle-outline' : isExpiringSoon ? 'warning-outline' : 'time-outline';
+  const iconColor   = isExpired ? '#FF4444' : isExpiringSoon ? '#E8A020' : planMeta.color;
 
   return (
     <View style={[styles.expiryBanner, {backgroundColor: bgColor, borderColor}]}>
@@ -93,12 +122,9 @@ const ExpiryBanner = ({userProfile, planMeta}) => {
           </>
         ) : (
           <>
-            <Text style={[styles.expiryBannerLabel, {color: planMeta.color}]}>
-              Plan renews on
-            </Text>
+            <Text style={[styles.expiryBannerLabel, {color: planMeta.color}]}>Plan renews on</Text>
             <Text style={styles.expiryBannerDate}>
-              {expiryStr}
-              {'  ·  '}
+              {expiryStr}{'  ·  '}
               <Text style={{color: '#999', fontFamily: 'Nunito-Regular', fontSize: hp(1.5)}}>
                 {daysLeft} days left
               </Text>
@@ -115,26 +141,24 @@ const ProductCard = ({product, onPress}) => (
   <TouchableOpacity style={styles.card} onPress={onPress}>
     <Image
       source={
-        product.images?.[0]
+        product.image
+          ? {uri: product.image}
+          : product.images?.[0]
           ? {uri: product.images[0]}
           : require('../../../assets/dummy_product.png')
       }
       style={styles.image}
     />
     <Text style={styles.name} numberOfLines={2}>
-      {product.name || product.product_name || 'Product'}
+      {product.product_name || product.name || 'Product'}
     </Text>
     <Text style={styles.subtitle} numberOfLines={1}>
-      {product.store_name || product.subtitle || 'Store'}
+      {product.category || product.store_name || 'Uncategorized'}
     </Text>
     <View style={styles.ratingContainer}>
       <Star size={12} color="#FFD700" fill="#FFD700" />
-      <Text style={styles.rating}>{product.rating || '4.8'}</Text>
-      <Text style={styles.reviews}>{product.reviews || '88'} Reviews</Text>
+      <Text style={styles.rating}>{product.rating || '—'}</Text>
     </View>
-    <TouchableOpacity style={styles.heartButton}>
-      <Heart size={15} color="red" />
-    </TouchableOpacity>
   </TouchableOpacity>
 );
 
@@ -158,9 +182,9 @@ const ScanHistoryScreen = ({loading, userProfile, scannedItems, scanStats, onPro
     );
   }
 
-  // ✅ Everything above the list goes in ListHeaderComponent
   const ListHeader = () => (
     <View style={{width: '100%'}}>
+
       {/* Plan Badge */}
       <View style={[styles.planBadge, {borderColor: planMeta.color, backgroundColor: planMeta.color + '18'}]}>
         <View style={[styles.planDot, {backgroundColor: planMeta.color}]} />
@@ -182,7 +206,7 @@ const ScanHistoryScreen = ({loading, userProfile, scannedItems, scanStats, onPro
           borderWidth={0}
           borderRadius={5}
           color={isAtLimit ? '#FF4444' : planMeta.color}
-          unfilledColor="#90CAF9"
+          unfilledColor="#E8F4FD"
         />
         <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: '2%'}}>
           <View>
@@ -212,38 +236,70 @@ const ScanHistoryScreen = ({loading, userProfile, scannedItems, scanStats, onPro
         </View>
       </View>
 
-      {/* Scan Category Analytics */}
-      <View style={{height: hp(38), flexDirection: 'row'}}>
-        <View style={{width: '72%', justifyContent: 'space-around', alignItems: 'center'}}>
-          <View style={{width: '80%'}}>
-            <Text style={{color: '#130160', fontFamily: 'Nunito-SemiBold', fontSize: hp(2), textDecorationLine: 'underline'}}>
-              SCANS CATEGORY
-            </Text>
-          </View>
-          <PieGraph data={scanStats?.categories} />
-          <View style={{flexDirection: 'row', justifyContent: 'space-between', width: '90%'}}>
-            {scanStats?.topCategories?.slice(0, 3).map((cat, index) => (
-              <View key={index} style={{flexDirection: 'row', alignItems: 'center'}}>
-                <View style={{width: wp(4), height: hp(1.2), backgroundColor: cat.color || '#0049AF', borderRadius: 3}} />
-                <Text style={{color: '#000', fontSize: hp(1.4)}}>{' '}{cat.name || `Category ${index + 1}`}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-        <View style={{width: '28%', height: '100%', justifyContent: 'space-between'}}>
-          {scanStats?.categories?.slice(0, 5).map((cat, index) => (
-            <View key={index} style={{height: '18%', width: '100%', paddingRight: '4%'}}>
-              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
-                <View style={{width: 13, height: 13, backgroundColor: cat.color || '#0049AF', borderRadius: 20}} />
-                <Text style={{color: 'gray', fontSize: hp(1.9)}} numberOfLines={1}>
-                  {cat.name || `Cat ${index + 1}`}
+      {/* ── Scan Usage Pie Chart ── */}
+      <View style={{alignItems: 'center', marginVertical: '4%'}}>
+        <Text style={{
+          color: '#130160', fontFamily: 'Nunito-SemiBold',
+          fontSize: hp(2), textDecorationLine: 'underline', marginBottom: hp(2),
+        }}>
+          SCAN USAGE
+        </Text>
+
+        <View style={{
+          flexDirection: 'row', alignItems: 'center',
+          justifyContent: 'center', gap: wp(6),
+        }}>
+          {/* Pie Chart */}
+          <PieGraph
+            used={usedScans}
+            total={maxScans}
+            color={isAtLimit ? '#FF4444' : planMeta.color}
+          />
+
+          {/* Legend */}
+          <View style={{gap: hp(1.5)}}>
+            {/* Used */}
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+              <View style={{
+                width: 12, height: 12, borderRadius: 6,
+                backgroundColor: isAtLimit ? '#FF4444' : planMeta.color,
+              }} />
+              <View>
+                <Text style={{fontFamily: 'Nunito-Bold', color: '#130160', fontSize: hp(1.8)}}>
+                  {usedScans.toLocaleString()}
+                </Text>
+                <Text style={{fontFamily: 'Nunito-Regular', color: '#999', fontSize: hp(1.4)}}>
+                  Scans Used
                 </Text>
               </View>
-              <View style={{width: '68%', alignSelf: 'flex-end', paddingVertical: '1%'}}>
-                <Text style={{color: '#000', fontWeight: '600', fontSize: hp(2.2)}}>{cat.percentage || 0}%</Text>
+            </View>
+
+            {/* Remaining */}
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+              <View style={{width: 12, height: 12, borderRadius: 6, backgroundColor: '#E8F4FD'}} />
+              <View>
+                <Text style={{fontFamily: 'Nunito-Bold', color: '#130160', fontSize: hp(1.8)}}>
+                  {Math.max(maxScans - usedScans, 0).toLocaleString()}
+                </Text>
+                <Text style={{fontFamily: 'Nunito-Regular', color: '#999', fontSize: hp(1.4)}}>
+                  Remaining
+                </Text>
               </View>
             </View>
-          ))}
+
+            {/* Total */}
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+              <View style={{width: 12, height: 12, borderRadius: 6, backgroundColor: '#F0F0F0'}} />
+              <View>
+                <Text style={{fontFamily: 'Nunito-Bold', color: '#130160', fontSize: hp(1.8)}}>
+                  {maxScans.toLocaleString()}
+                </Text>
+                <Text style={{fontFamily: 'Nunito-Regular', color: '#999', fontSize: hp(1.4)}}>
+                  Total Limit
+                </Text>
+              </View>
+            </View>
+          </View>
         </View>
       </View>
 
@@ -261,11 +317,10 @@ const ScanHistoryScreen = ({loading, userProfile, scannedItems, scanStats, onPro
   );
 
   return (
-    // ✅ Single FlatList — no ScrollView wrapper needed
     <FlatList
       data={scannedItems}
       renderItem={({item}) => <ProductCard product={item} onPress={() => onProductPress(item)} />}
-      keyExtractor={(item, index) => item._id || item.id || index.toString()}
+      keyExtractor={(item, index) => item.scan_id || item._id || item.id || index.toString()}
       numColumns={3}
       showsVerticalScrollIndicator={false}
       ListHeaderComponent={ListHeader}
@@ -300,7 +355,6 @@ const MyItemsScreen = ({loading, userProfile, scanHistory, onProductPress}) => {
 
   const ListHeader = () => (
     <View>
-      {/* Plan Badge */}
       <View style={[styles.planBadge, {borderColor: planMeta.color, backgroundColor: planMeta.color + '18'}]}>
         <View style={[styles.planDot, {backgroundColor: planMeta.color}]} />
         <Text style={[styles.planBadgeText, {color: planMeta.color}]}>{planMeta.label}</Text>
@@ -309,10 +363,8 @@ const MyItemsScreen = ({loading, userProfile, scanHistory, onProductPress}) => {
         </Text>
       </View>
 
-      {/* Expiry Banner */}
       <ExpiryBanner userProfile={userProfile} planMeta={planMeta} />
 
-      {/* Progress Bar */}
       <View style={{width: '95%', alignSelf: 'center', marginVertical: '4%'}}>
         <Progress.Bar
           progress={progress}
@@ -321,7 +373,7 @@ const MyItemsScreen = ({loading, userProfile, scanHistory, onProductPress}) => {
           borderWidth={0}
           borderRadius={5}
           color={isAtLimit ? '#FF4444' : planMeta.color}
-          unfilledColor="#90CAF9"
+          unfilledColor="#E8F4FD"
         />
         <View style={{marginVertical: '2%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
           <View>
@@ -342,7 +394,6 @@ const MyItemsScreen = ({loading, userProfile, scanHistory, onProductPress}) => {
         </View>
       </View>
 
-      {/* Header */}
       <View style={{
         width: '100%', flexDirection: 'row', justifyContent: 'space-between',
         alignItems: 'center', marginVertical: '7%', paddingHorizontal: '2%',
@@ -354,11 +405,10 @@ const MyItemsScreen = ({loading, userProfile, scanHistory, onProductPress}) => {
   );
 
   return (
-    // ✅ Single FlatList — no ScrollView wrapper needed
     <FlatList
       data={scanHistory}
       renderItem={({item}) => <ProductCard product={item} onPress={() => onProductPress(item)} />}
-      keyExtractor={(item, index) => item._id || item.id || index.toString()}
+      keyExtractor={(item, index) => item.scan_id || item._id || item.id || index.toString()}
       numColumns={3}
       ListHeaderComponent={ListHeader}
       ListEmptyComponent={
@@ -391,15 +441,31 @@ const MyLibrary = () => {
   const fetchLibraryData = async () => {
     try {
       setLoading(true);
-      const profileResponse = await userAPI.getProfile();
+
+      const [profileResponse, categoriesResponse] = await Promise.all([
+        userAPI.getProfile(),
+        categoriesAPI.getAll().catch(() => null),
+      ]);
+
+      const categoryLookup = {};
+      const rawCats = categoriesResponse?.categories || categoriesResponse || [];
+      if (Array.isArray(rawCats)) {
+        rawCats.forEach(cat => {
+          const name = cat.name || cat.label || 'Uncategorized';
+          if (cat._id)  categoryLookup[cat._id]  = name;
+          if (cat.name) categoryLookup[cat.name] = name;
+        });
+      }
+
       if (profileResponse) {
         const userData = profileResponse.user || profileResponse;
         setUserProfile(userData);
 
         if (userData.scans_used && Array.isArray(userData.scans_used)) {
-          setScannedItems(userData.scans_used);
-          setScanHistory(userData.scans_used);
-          setScanStats(calculateScanStats(userData.scans_used));
+          const parsedScans = parseScans(userData.scans_used);
+          setScannedItems(parsedScans);
+          setScanHistory(parsedScans);
+          setScanStats(calculateScanStats(parsedScans, categoryLookup));
         } else {
           try {
             const productsResponse = await productsAPI.getAll?.();
@@ -418,24 +484,6 @@ const MyLibrary = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const calculateScanStats = scans => {
-    const categoryMap = {};
-    const colors = ['#0049AF', '#70B6C1', '#6F19C2', '#FF9F40', '#14BA9C'];
-    scans.forEach(scan => {
-      const category = scan.category || 'Uncategorized';
-      if (!categoryMap[category]) categoryMap[category] = {count: 0, name: category};
-      categoryMap[category].count++;
-    });
-    const total = scans.length || 1;
-    const categories = Object.values(categoryMap).map((cat, index) => ({
-      name: cat.name, count: cat.count,
-      percentage: Math.round((cat.count / total) * 100),
-      color: colors[index % colors.length],
-    }));
-    categories.sort((a, b) => b.count - a.count);
-    return {categories, topCategories: categories.slice(0, 3)};
   };
 
   const handleProductPress = product => navigation.navigate('SinglePageItem', {product});
@@ -470,7 +518,6 @@ const MyLibrary = () => {
           </TouchableOpacity>
         </View>
 
-        {/* ✅ No more ScrollView wrapper — FlatList handles its own scrolling */}
         {activeTab === 'scan' && (
           <ScanHistoryScreen
             loading={loading}
@@ -494,14 +541,14 @@ const MyLibrary = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: '#E6F3F5'},
+  container:   {flex: 1, backgroundColor: '#E6F3F5'},
   header: {
     width: wp(100), height: hp(7), marginTop: '10%',
     paddingHorizontal: '5%', flexDirection: 'row',
     alignItems: 'center', justifyContent: 'space-between',
   },
-  headerChild: {flexDirection: 'row', alignItems: 'center', gap: 10},
-  headerText: {fontFamily: 'Nunito-Bold', fontSize: hp(3), color: '#0D0140'},
+  headerChild:  {flexDirection: 'row', alignItems: 'center', gap: 10},
+  headerText:   {fontFamily: 'Nunito-Bold', fontSize: hp(3), color: '#0D0140'},
   tabContainer: {
     flexDirection: 'row', justifyContent: 'space-around',
     marginVertical: '5%', width: wp(100),
@@ -511,22 +558,18 @@ const styles = StyleSheet.create({
     width: wp(40), justifyContent: 'center', alignItems: 'center',
     borderRadius: 10, borderWidth: 1.2, borderColor: '#99ABC62E',
   },
-  activeTab: {backgroundColor: '#2CCCA6', borderColor: '#2CCCA6'},
-  tabText: {fontSize: hp(1.9), fontFamily: 'Nunito-SemiBold', color: '#000'},
+  activeTab:     {backgroundColor: '#2CCCA6', borderColor: '#2CCCA6'},
+  tabText:       {fontSize: hp(1.9), fontFamily: 'Nunito-SemiBold', color: '#000'},
   activeTabText: {color: '#fff'},
-  vector: {flex: 1, width: wp(100)},
-
-  // Plan badge
+  vector:        {flex: 1, width: wp(100)},
   planBadge: {
     flexDirection: 'row', alignItems: 'center',
     marginHorizontal: '2%', marginTop: '3%',
     padding: 10, borderRadius: 10, borderWidth: 1,
   },
-  planDot: {width: 10, height: 10, borderRadius: 5, marginRight: 6},
-  planBadgeText: {fontFamily: 'Nunito-Bold', fontSize: hp(1.9)},
-  planBadgeSub: {fontFamily: 'Nunito-Regular', fontSize: hp(1.7), color: '#666'},
-
-  // Expiry banner
+  planDot:        {width: 10, height: 10, borderRadius: 5, marginRight: 6},
+  planBadgeText:  {fontFamily: 'Nunito-Bold', fontSize: hp(1.9)},
+  planBadgeSub:   {fontFamily: 'Nunito-Regular', fontSize: hp(1.7), color: '#666'},
   expiryBanner: {
     flexDirection: 'row', alignItems: 'center',
     marginHorizontal: '2%', marginTop: '2%',
@@ -534,38 +577,31 @@ const styles = StyleSheet.create({
   },
   expiryBannerLabel: {fontFamily: 'Nunito-Regular', fontSize: hp(1.5)},
   expiryBannerTitle: {fontFamily: 'Nunito-Bold', fontSize: hp(1.8)},
-  expiryBannerDate: {fontFamily: 'Nunito-Bold', fontSize: hp(1.8), color: '#130160'},
-
-  // Limit warnings
+  expiryBannerDate:  {fontFamily: 'Nunito-Bold', fontSize: hp(1.8), color: '#130160'},
   limitWarning: {
     backgroundColor: '#FFEBEE', borderRadius: 8,
     padding: 8, borderWidth: 1, borderColor: '#FF4444', alignItems: 'center',
   },
-  limitWarningText: {fontFamily: 'Nunito-Bold', fontSize: hp(1.7), color: '#FF4444'},
+  limitWarningText:    {fontFamily: 'Nunito-Bold', fontSize: hp(1.7), color: '#FF4444'},
   limitWarningSubText: {fontFamily: 'Nunito-Regular', fontSize: hp(1.5), color: '#FF4444'},
-
-  // Loading & empty
   loadingContainer: {flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 80},
-  loadingText: {marginTop: 10, fontFamily: 'Nunito-Regular', fontSize: hp(2), color: '#666'},
-  emptyContainer: {flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 80},
-  emptyText: {fontFamily: 'Nunito-Bold', fontSize: hp(2.5), color: '#666', marginTop: 20},
-  emptySubtext: {fontFamily: 'Nunito-Regular', fontSize: hp(1.8), color: '#999', marginTop: 10},
-
-  // Product card
+  loadingText:      {marginTop: 10, fontFamily: 'Nunito-Regular', fontSize: hp(2), color: '#666'},
+  emptyContainer:   {flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 80},
+  emptyText:        {fontFamily: 'Nunito-Bold', fontSize: hp(2.5), color: '#666', marginTop: 20},
+  emptySubtext:     {fontFamily: 'Nunito-Regular', fontSize: hp(1.8), color: '#999', marginTop: 10},
   card: {
     width: '30%', backgroundColor: '#fff', borderRadius: 8, padding: '2%',
     shadowColor: '#000', shadowOffset: {width: 0, height: 2},
     shadowOpacity: 0.1, shadowRadius: 4, elevation: 3,
     marginHorizontal: '1.5%', marginBottom: '5%',
   },
-  image: {width: '100%', height: hp(10), marginBottom: 10, borderRadius: 5},
-  name: {fontSize: hp(1.36), marginBottom: 4, color: '#000', fontFamily: 'DMSans-SemiBold'},
-  subtitle: {fontSize: hp(1.5), color: '#14BA9C', fontFamily: 'DMSans-SemiBold', marginBottom: '8%'},
+  image:           {width: '100%', height: hp(10), marginBottom: 10, borderRadius: 5},
+  name:            {fontSize: hp(1.36), marginBottom: 4, color: '#000', fontFamily: 'DMSans-SemiBold'},
+  subtitle:        {fontSize: hp(1.5), color: '#14BA9C', fontFamily: 'DMSans-SemiBold', marginBottom: '8%'},
   ratingContainer: {flexDirection: 'row', alignItems: 'center', marginBottom: 4},
-  rating: {fontSize: hp(1.3), fontWeight: 'bold', color: '#000', marginLeft: 2},
-  reviews: {marginLeft: 4, fontSize: hp(1.2), color: '#666'},
-  heartButton: {position: 'absolute', bottom: '2%', right: '1%', borderRadius: 15, padding: 5},
-  grid: {paddingBottom: 20},
+  rating:          {fontSize: hp(1.3), fontWeight: 'bold', color: '#000', marginLeft: 2},
+  reviews:         {marginLeft: 4, fontSize: hp(1.2), color: '#666'},
+  grid:            {paddingBottom: 20},
 });
 
 export default MyLibrary;

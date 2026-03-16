@@ -10,6 +10,9 @@ import React, { useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import { authAPI } from '../../api/apiService';
 import DatePicker from 'react-native-date-picker';
+import axios from 'axios';
+
+const API_KEY = "AIzaSyCY-8_-SbCN29nphT9QFtbzWV5H3asJQ4Q";
 
 const SignUp = ({ route }) => {
   const navigation = useNavigation();
@@ -33,6 +36,12 @@ const SignUp = ({ route }) => {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
 
+  // ✅ Google Places state
+  const [suggestions, setSuggestions] = useState([]);
+  const [addressError, setAddressError] = useState('');
+  const [userLat, setUserLat] = useState(null);
+  const [userLong, setUserLong] = useState(null);
+
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
@@ -43,6 +52,46 @@ const SignUp = ({ route }) => {
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
     return `${yyyy}-${mm}-${dd}`;
+  };
+
+  // ✅ Fetch address suggestions from Google Places
+  const fetchSuggestions = async (input) => {
+    if (input.length < 3) { setSuggestions([]); return; }
+    const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(input)}&key=${API_KEY}`;
+    try {
+      const response = await axios.get(url);
+      const data = response.data;
+      setSuggestions(data.status === 'OK' ? data.predictions : []);
+      setAddressError(data.status === 'OK' ? '' : 'No suggestions found');
+    } catch {
+      setAddressError('Error fetching suggestions');
+      setSuggestions([]);
+    }
+  };
+
+  // ✅ Geocode selected address to get lat/lng
+  const geocodeAddress = async (addr) => {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr)}&key=${API_KEY}`;
+    try {
+      const response = await axios.get(url);
+      const data = response.data;
+      if (data.results.length > 0) {
+        const { lat, lng } = data.results[0].geometry.location;
+        return { lat, lng };
+      }
+      return null;
+    } catch { return null; }
+  };
+
+  // ✅ When user picks a suggestion
+  const handleSelectSuggestion = async (suggestion) => {
+    handleInputChange('address', suggestion.description);
+    setSuggestions([]);
+    const coords = await geocodeAddress(suggestion.description);
+    if (coords) {
+      setUserLat(coords.lat);
+      setUserLong(coords.lng);
+    }
   };
 
   const validateForm = () => {
@@ -80,7 +129,12 @@ const SignUp = ({ route }) => {
         newErrors.phone_number = 'Please enter a valid phone number';
       }
 
-      if (!formData.address.trim()) newErrors.address = 'Address is required';
+      if (!formData.address.trim()) {
+        newErrors.address = 'Address is required';
+      } else if (!userLat || !userLong) {
+        newErrors.address = 'Please select a valid address from suggestions';
+      }
+
       if (!formData.expertise_level) newErrors.expertise_level = 'Expertise level is required';
     }
 
@@ -106,12 +160,11 @@ const SignUp = ({ route }) => {
       };
 
       if (isPremiumPlan) {
-        registrationData.dob = formData.dob; // YYYY-MM-DD
+        registrationData.dob = formData.dob;
         registrationData.gender = formData.gender;
         registrationData.phone_number = formData.phone_number;
         registrationData.address = formData.address;
         registrationData.expertise_level = formData.expertise_level;
-        // Placeholder card — real payment via Stripe on next screen
         registrationData.card_information = {
           card_number: '0000000000000000',
           cardholder_name: formData.full_name,
@@ -123,23 +176,40 @@ const SignUp = ({ route }) => {
 
       console.log('Sending registration data:', JSON.stringify(registrationData, null, 2));
 
+      // Step 1: Register
       const response = await authAPI.register(registrationData);
-      console.log('Registration response:', response);
+      console.log('Registration response:', JSON.stringify(response, null, 2));
 
-      // ✅ Navigate immediately without alert
+      if (!response.success) {
+        throw new Error(response.message || 'Registration failed');
+      }
+
+      // Step 2: Auto-login to get auth token
+      console.log('Auto-logging in after registration...');
+      const loginResponse = await authAPI.login({
+        email: formData.email,
+        password: formData.password,
+      });
+      console.log('Auto-login response:', JSON.stringify(loginResponse, null, 2));
+
+      if (!loginResponse?.token) {
+        throw new Error('Login after registration failed — no token received. Please log in manually.');
+      }
+
+      // Step 3: Navigate
       if (isPremiumPlan) {
         navigation.navigate('SelectPremiumPlan', {
-          userData: response,
+          userData: loginResponse,
           selectedPlan,
         });
       } else {
         navigation.navigate('QuizScreen', {
-          userData: response,
+          userData: loginResponse,
           selectedPlan,
         });
       }
     } catch (error) {
-      console.error('Registration error:', error);
+      console.error('Registration/login error:', error);
       let errorMessage = 'Registration failed. Please try again.';
       if (error.status === 400) errorMessage = error.message || 'Invalid registration data';
       else if (error.status === 409) errorMessage = 'This email is already registered';
@@ -309,20 +379,42 @@ const SignUp = ({ route }) => {
               </View>
               {errors.phone_number && <Text style={styles.errorText}>{errors.phone_number}</Text>}
 
-              {/* Address */}
+              {/* ✅ Address with Google Places autocomplete */}
               <Text style={styles.label}>Address</Text>
-              <View style={[styles.inputBox, { height: hp(10), paddingVertical: '3%' }, errors.address && styles.inputError]}>
+              <View style={[styles.inputBox, errors.address && styles.inputError]}>
                 <TextInput
-                  placeholder="Enter your full address"
+                  placeholder="Start typing your address..."
                   style={styles.input}
                   placeholderTextColor="gray"
-                  multiline
-                  numberOfLines={3}
-                  textAlignVertical="top"
                   value={formData.address}
-                  onChangeText={t => handleInputChange('address', t)}
+                  onChangeText={(text) => {
+                    handleInputChange('address', text);
+                    // Clear coords when user types manually
+                    setUserLat(null);
+                    setUserLong(null);
+                    fetchSuggestions(text);
+                  }}
                 />
               </View>
+
+              {/* ✅ Suggestions dropdown — plain Views, no FlatList */}
+              {suggestions.length > 0 && (
+                <View style={styles.suggestionsContainer}>
+                  {suggestions.map((item) => (
+                    <TouchableOpacity
+                      key={item.place_id}
+                      style={styles.suggestionItem}
+                      onPress={() => handleSelectSuggestion(item)}
+                    >
+                      <Text style={styles.suggestionText}>{item.description}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {addressError ? (
+                <Text style={styles.errorText}>{addressError}</Text>
+              ) : null}
               {errors.address && <Text style={styles.errorText}>{errors.address}</Text>}
 
               {/* Expertise Level */}
@@ -405,6 +497,31 @@ const styles = StyleSheet.create({
   inputError: { borderColor: '#FF0000', borderWidth: 1 },
   input: { fontFamily: 'Nunito-Regular', color: '#000', fontSize: hp(2.2) },
   errorText: { color: '#FF0000', fontFamily: 'Nunito-Regular', fontSize: hp(1.8), marginTop: -5, marginLeft: 5 },
+  // ✅ Suggestions styles
+  suggestionsContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 0.4,
+    borderColor: '#524B6B',
+    marginBottom: '2%',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    overflow: 'hidden',
+  },
+  suggestionItem: {
+    padding: 12,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#ddd',
+    paddingHorizontal: '5%',
+  },
+  suggestionText: {
+    fontFamily: 'Nunito-Regular',
+    fontSize: hp(1.8),
+    color: '#000',
+  },
   toggleBtn: {
     flex: 1, marginHorizontal: 4, paddingVertical: 14,
     borderRadius: 8, borderWidth: 1.5,

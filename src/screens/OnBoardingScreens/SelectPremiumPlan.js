@@ -99,18 +99,14 @@ const TIERS = [
   },
 ];
 
-// Savings label for yearly
 const YEARLY_SAVINGS = {
-  tier1: 'Save $48/yr', // 29*12=348, 300 → save 48
-  tier2: 'Save $108/yr', // 59*12=708, 600 → save 108
-  tier3: 'Save $189/yr', // 99*12=1188, 999 → save 189
+  tier1: 'Save $48/yr',
+  tier2: 'Save $108/yr',
+  tier3: 'Save $189/yr',
 };
 
 const TIER_ORDER = {free: 0, tier1: 1, tier2: 2, tier3: 3};
-const API_BASE_URL = 'http://192.168.1.4:3001';
-
-// Duration in days — monthly=30, yearly=365
-const PLAN_DURATIONS = {monthly: 30, yearly: 365};
+const API_BASE_URL = 'https://biniq.onrender.com';
 
 const SelectPremiumPlan = ({navigation, route}) => {
   const {isUpgrade = false, currentPlan = 'free'} = route?.params || {};
@@ -123,12 +119,12 @@ const SelectPremiumPlan = ({navigation, route}) => {
   };
 
   const [activeTab, setActiveTab] = useState(getDefaultTab());
-  const [billing, setBilling] = useState('monthly'); // 'monthly' | 'yearly'
+  const [billing, setBilling] = useState('monthly');
   const [loading, setLoading] = useState(false);
   const {initPaymentSheet, presentPaymentSheet} = useStripe();
 
   const selectedTier = TIERS[activeTab];
-  const billingInfo = selectedTier[billing]; // { price, amount }
+  const billingInfo = selectedTier[billing];
   const isYearly = billing === 'yearly';
 
   const isTabDisabled = tier => {
@@ -147,7 +143,9 @@ const SelectPremiumPlan = ({navigation, route}) => {
         return;
       }
 
-      // Create PaymentIntent — send billing cycle too
+      console.log('Creating payment intent for:', selectedTier.id, billing);
+
+      // ✅ Explicitly pass type: 'subscription' so backend doesn't treat it as store_verification
       const response = await fetch(
         `${API_BASE_URL}/api/payments/create-payment-intent`,
         {
@@ -159,14 +157,29 @@ const SelectPremiumPlan = ({navigation, route}) => {
           body: JSON.stringify({
             currency: 'usd',
             plan: selectedTier.id,
-            billing_cycle: billing, // ✅ 'monthly' or 'yearly'
+            billing_cycle: billing,
+            type: 'subscription', // ✅ KEY FIX
           }),
         },
       );
 
       const data = await response.json();
+      console.log('Payment intent response status:', response.status);
+      console.log(
+        'Payment intent response data:',
+        JSON.stringify(data, null, 2),
+      );
+
       if (!data.success || !data.clientSecret) {
         throw new Error(data.message || 'Failed to create payment intent');
+      }
+
+      // ✅ Handle already_verified edge case
+      if (data.already_verified) {
+        Alert.alert('Already Active', 'Your subscription is still active!', [
+          {text: 'OK', onPress: () => navigation.replace('HomeNavigataor')},
+        ]);
+        return;
       }
 
       const {error: initError} = await initPaymentSheet({
@@ -200,12 +213,14 @@ const SelectPremiumPlan = ({navigation, route}) => {
           body: JSON.stringify({
             payment_intent_id: data.paymentIntentId,
             plan: selectedTier.id,
-            billing_cycle: billing, // ✅ pass through
+            billing_cycle: billing,
           }),
         },
       );
 
       const confirmData = await confirmResponse.json();
+      console.log('Confirm response:', JSON.stringify(confirmData, null, 2));
+
       if (!confirmData.success) {
         throw new Error(
           confirmData.message || 'Subscription confirmation failed',
@@ -265,7 +280,7 @@ const SelectPremiumPlan = ({navigation, route}) => {
         </Text>
       </View>
 
-      {/* ✅ Monthly / Yearly toggle */}
+      {/* Monthly / Yearly toggle */}
       <View style={styles.billingToggleRow}>
         <TouchableOpacity
           style={[styles.billingBtn, !isYearly && styles.billingBtnActive]}
@@ -288,7 +303,6 @@ const SelectPremiumPlan = ({navigation, route}) => {
             ]}>
             Yearly
           </Text>
-          {/* Savings badge */}
           <View style={styles.savingsBadge}>
             <Text style={styles.savingsText}>
               {YEARLY_SAVINGS[selectedTier.id]}
@@ -414,8 +428,6 @@ const styles = StyleSheet.create({
   titleBlock: {paddingHorizontal: wp(5), marginTop: hp(2)},
   title: {fontSize: hp(3), fontWeight: 'bold', color: '#130160'},
   subtitle: {fontSize: hp(1.8), color: '#524B6B'},
-
-  // ── Billing toggle ──
   billingToggleRow: {
     flexDirection: 'row',
     marginHorizontal: wp(5),
@@ -444,8 +456,6 @@ const styles = StyleSheet.create({
   },
   savingsText: {fontSize: hp(1.3), color: '#fff', fontWeight: 'bold'},
   savingsInline: {fontSize: hp(1.8), fontWeight: '600'},
-
-  // ── Tier tabs ──
   tabRow: {
     flexDirection: 'row',
     marginHorizontal: wp(5),
@@ -465,8 +475,6 @@ const styles = StyleSheet.create({
   tabTextActive: {color: '#fff'},
   tabTextDisabled: {color: '#bbb'},
   tabCurrentLabel: {fontSize: hp(1.1), color: '#aaa', marginTop: 1},
-
-  // ── Price badge ──
   priceBadge: {
     marginHorizontal: wp(5),
     marginTop: hp(1.5),
@@ -477,7 +485,6 @@ const styles = StyleSheet.create({
   },
   priceMain: {fontSize: hp(3.5), fontWeight: 'bold'},
   priceAlt: {fontSize: hp(1.8), color: '#888'},
-
   featureScroll: {flex: 1, marginTop: hp(1)},
   featureContent: {paddingHorizontal: wp(5)},
   featureRow: {

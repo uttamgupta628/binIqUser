@@ -1,22 +1,24 @@
-import { 
-  ImageBackground, 
-  StatusBar, 
-  StyleSheet, 
-  Text, 
-  View, 
+import {
+  ImageBackground,
+  StatusBar,
+  StyleSheet,
+  Text,
+  View,
   Dimensions,
   Alert,
   ActivityIndicator,
-} from 'react-native'
-import React, { useEffect, useState } from 'react'
-import { heightPercentageToDP as hp, widthPercentageToDP as wp } from 'react-native-responsive-screen';
-import { TouchableOpacity } from 'react-native-gesture-handler';
-import { useNavigation } from '@react-navigation/native';
+} from 'react-native';
+import React, {useEffect, useState} from 'react';
+import {
+  heightPercentageToDP as hp,
+  widthPercentageToDP as wp,
+} from 'react-native-responsive-screen';
+import {TouchableOpacity} from 'react-native-gesture-handler';
+import {useNavigation} from '@react-navigation/native';
 import AntDesign from 'react-native-vector-icons/AntDesign';
 import StarRating from 'react-native-star-rating-widget';
-import { userAPI } from '../../api/apiService';
 
-const { width, height } = Dimensions.get('window')
+const {width, height} = Dimensions.get('window');
 
 const Feedback = () => {
   const navigation = useNavigation();
@@ -27,67 +29,16 @@ const Feedback = () => {
     if (rating > 0 && !submitting) {
       handleRatingSubmit();
     }
-  }, [rating])
+  }, [rating]);
 
-  const handleRatingSubmit = async () => {
-    try {
-      setSubmitting(true);
-
-      // Save rating to backend
-      const feedbackData = {
-        rating: rating,
-        timestamp: new Date().toISOString(),
-        type: 'app_rating',
-      };
-
-      console.log('Submitting rating:', feedbackData);
-
-      // TODO: Replace with actual API call when endpoint is available
-      // const response = await userAPI.submitFeedback(feedbackData);
-      
-      // For now, simulate API call
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      // Navigate to feedback text screen with rating
-      navigation.navigate('FeedbackText', { 
-        rating: rating,
-        feedbackData: feedbackData 
-      });
-
-    } catch (err) {
-      console.error('Error submitting rating:', err);
-      Alert.alert(
-        'Error',
-        'Failed to submit rating. Please try again.',
-        [
-          { 
-            text: 'OK', 
-            onPress: () => setRating(0) 
-          }
-        ]
-      );
-    } finally {
-      setSubmitting(false);
-    }
+  const handleRatingSubmit = () => {
+    // Navigate to FeedbackText with just the rating
+    // Actual API submission happens there
+    navigation.navigate('FeedbackText', {rating});
   };
 
   const handleClose = () => {
-    if (rating > 0) {
-      Alert.alert(
-        'Discard Rating?',
-        'Are you sure you want to close without submitting feedback?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Discard', 
-            style: 'destructive',
-            onPress: () => navigation.goBack() 
-          }
-        ]
-      );
-    } else {
-      navigation.goBack();
-    }
+    navigation.goBack();
   };
 
   return (
@@ -96,54 +47,44 @@ const Feedback = () => {
       <ImageBackground
         source={require('../../../assets/vector_1.png')}
         style={styles.vector}
-        resizeMode="stretch"
-      >
+        resizeMode="stretch">
         <View style={styles.reviewContainer}>
           {/* Close Button */}
           <View style={styles.cancelMark}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.closeButton}
               onPress={handleClose}
-              disabled={submitting}
-            >
-              <AntDesign name='close' color='#3C3C4399' size={hp(2.3)} />
+              disabled={submitting}>
+              <AntDesign name="close" color="#3C3C4399" size={hp(2.3)} />
             </TouchableOpacity>
           </View>
 
           {/* Main Content */}
           <View style={styles.main}>
             <View style={styles.textContainer}>
-              <Text style={styles.titleText}>
-                How are you finding the app?
-              </Text>
+              <Text style={styles.titleText}>How are you finding the app?</Text>
               <Text style={styles.descriptionText}>
-                We've been working hard on this feature, so your feedback is super helpful to us.
+                We've been working hard on this feature, so your feedback is
+                super helpful to us.
               </Text>
 
               {/* Star Rating */}
-              {submitting ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color="#130160" />
-                  <Text style={styles.loadingText}>Submitting...</Text>
-                </View>
-              ) : (
-                <View style={styles.starContainer}>
-                  <StarRating
-                    rating={rating}
-                    onChange={setRating}
-                    starSize={hp(5.3)}
-                    enableHalfStar={false}
-                    enableSwiping={false}
-                    color="#FFD700"
-                    emptyColor="#E0E0E0"
-                  />
-                  {rating > 0 && (
-                    <Text style={styles.ratingText}>
-                      {getRatingMessage(rating)}
-                    </Text>
-                  )}
-                </View>
-              )}
+              <View style={styles.starContainer}>
+                <StarRating
+                  rating={rating}
+                  onChange={setRating}
+                  starSize={hp(5.3)}
+                  enableHalfStar={false}
+                  enableSwiping={false}
+                  color="#FFD700"
+                  emptyColor="#E0E0E0"
+                />
+                {rating > 0 && (
+                  <Text style={styles.ratingText}>
+                    {getRatingMessage(rating)}
+                  </Text>
+                )}
+              </View>
             </View>
           </View>
 
@@ -156,28 +97,28 @@ const Feedback = () => {
         </View>
       </ImageBackground>
     </View>
-  )
-}
+  );
+};
 
 // Helper function to get rating message
-const getRatingMessage = (rating) => {
+const getRatingMessage = rating => {
   switch (rating) {
     case 1:
       return "We're sorry to hear that 😔";
     case 2:
-      return "We can do better 😕";
+      return 'We can do better 😕';
     case 3:
       return "It's okay 😊";
     case 4:
       return "We're glad you like it! 😃";
     case 5:
-      return "Awesome! Thank you! 🎉";
+      return 'Awesome! Thank you! 🎉';
     default:
-      return "";
+      return '';
   }
 };
 
-export default Feedback
+export default Feedback;
 
 const styles = StyleSheet.create({
   container: {
@@ -201,7 +142,7 @@ const styles = StyleSheet.create({
     padding: '5%',
     justifyContent: 'space-evenly',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
+    shadowOffset: {width: 0, height: -2},
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
@@ -223,13 +164,13 @@ const styles = StyleSheet.create({
     width: wp(7),
     borderRadius: 20,
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
   },
   titleText: {
     fontFamily: 'Nunito-Bold',
     color: '#000',
     textAlign: 'center',
-    fontSize: hp(2.6)
+    fontSize: hp(2.6),
   },
   descriptionText: {
     fontFamily: 'Nunito-SemiBold',
@@ -248,16 +189,6 @@ const styles = StyleSheet.create({
     marginTop: 10,
     textAlign: 'center',
   },
-  loadingContainer: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  loadingText: {
-    fontFamily: 'Nunito-Regular',
-    fontSize: hp(1.8),
-    color: '#666',
-    marginTop: 10,
-  },
   helperTextContainer: {
     alignItems: 'center',
     paddingTop: 10,
@@ -268,4 +199,4 @@ const styles = StyleSheet.create({
     color: '#999',
     textAlign: 'center',
   },
-})
+});
