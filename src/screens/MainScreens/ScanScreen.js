@@ -428,3 +428,5 @@ const styles = StyleSheet.create({
 });
 
 export default ScanScreen;
+// AIzaSyCY-8_-SbCN29nphT9QFtbzWV5H3asJQ4Q
+// image-recogntion@bin-iq.iam.gserviceaccount.com

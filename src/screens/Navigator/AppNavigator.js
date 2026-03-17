@@ -36,10 +36,11 @@ import SelectUserRole from '../OnBoardingScreens/SelectUserRole';
 import SelectPlan from '../OnBoardingScreens/SelectPlan';
 import SelectPremiumPlan from '../OnBoardingScreens/SelectPremiumPlan'; 
 import FreeSubscription from '../SubscriptionScreens/FreeSubscription';
-
 import SearchResults from '../MainScreens/SearchScreen'; 
 import PayWall from '../SubscriptionScreens/PayWall';
 import EditProfileScreen from '../MainScreens/EditProfileScreen';
+import PrivacyPolicy from '../UserProfileScreens/Privacypolicy'; 
+import AboutUs from '../UserProfileScreens/Aboutus';
 
 const AppNavigator = () => {
   const Stack = createStackNavigator();
@@ -208,7 +209,7 @@ const AppNavigator = () => {
           component={SelectPlan}
           options={{headerShown: false}}
         />
-        {/* ✅ NEW — Premium tier selection screen */}
+        {/* ✅ Premium tier selection screen */}
         <Stack.Screen
           name="SelectPremiumPlan"
           component={SelectPremiumPlan}
@@ -230,10 +231,17 @@ const AppNavigator = () => {
           options={{headerShown: false}}
         />
         <Stack.Screen
-  name="SearchResults"
-  component={SearchResults}
-  options={{ headerShown: false }}
-/>
+          name="SearchResults"
+          component={SearchResults}
+          options={{headerShown: false}}
+        />
+        {/* ✅ NEW — Privacy Policy screen */}
+        <Stack.Screen
+          name="PrivacyPolicy"
+          component={PrivacyPolicy}
+          options={{headerShown: false}}
+        />
+<Stack.Screen name="AboutUs" component={AboutUs} options={{headerShown: false}} />
       </Stack.Navigator>
     </NavigationContainer>
   );

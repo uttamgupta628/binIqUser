@@ -287,7 +287,7 @@ export default function SettingsScreen({ openDrawer }) {
 
           <TouchableOpacity 
             style={styles.settingItem}
-            onPress={() => navigation.navigate('About')}>
+            onPress={() => navigation.navigate('AboutUs')}>
             <View style={styles.settingLeft}>
               <AboutIcon />
               <Text style={styles.settingText}>About BinIQ</Text>
