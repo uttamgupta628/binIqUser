@@ -25,6 +25,7 @@ import Library from '../../../assets/Library.svg';
 import LibraryFocused from '../../../assets/LibraryFocused.svg';
 import User from '../../../assets/User.svg';
 import UserFocused from '../../../assets/user_focus.svg';
+import ImageSearchScreen from '../MainScreens/Imagesearchscreen';
 import {
   heightPercentageToDP as hp,
   widthPercentageToDP as wp,
@@ -197,6 +198,7 @@ const BottomNavigator = () => {
       <Tab.Screen name="ScanScreen" component={ScanScreen} />
       <Tab.Screen name="MyLibrary" component={MyLibrary} />
       <Tab.Screen name="UserProfileScreen" component={UserProfileScreen} />
+      <Tab.Screen name="ImageSearchScreen" component={ImageSearchScreen} />
     </Tab.Navigator>
   );
 };

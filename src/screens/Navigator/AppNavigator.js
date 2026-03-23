@@ -41,6 +41,7 @@ import PayWall from '../SubscriptionScreens/PayWall';
 import EditProfileScreen from '../MainScreens/EditProfileScreen';
 import PrivacyPolicy from '../UserProfileScreens/Privacypolicy'; 
 import AboutUs from '../UserProfileScreens/Aboutus';
+import ImageSearchScreen from '../MainScreens/Imagesearchscreen';
 
 const AppNavigator = () => {
   const Stack = createStackNavigator();
@@ -209,7 +210,6 @@ const AppNavigator = () => {
           component={SelectPlan}
           options={{headerShown: false}}
         />
-        {/* ✅ Premium tier selection screen */}
         <Stack.Screen
           name="SelectPremiumPlan"
           component={SelectPremiumPlan}
@@ -235,13 +235,22 @@ const AppNavigator = () => {
           component={SearchResults}
           options={{headerShown: false}}
         />
-        {/* ✅ NEW — Privacy Policy screen */}
         <Stack.Screen
           name="PrivacyPolicy"
           component={PrivacyPolicy}
           options={{headerShown: false}}
         />
-<Stack.Screen name="AboutUs" component={AboutUs} options={{headerShown: false}} />
+        <Stack.Screen
+          name="AboutUs"
+          component={AboutUs}
+          options={{headerShown: false}}
+        />
+        {/* ✅ Image Search Screen - registered here so it works from ScanScreen */}
+        <Stack.Screen
+          name="ImageSearchScreen"
+          component={ImageSearchScreen}
+          options={{headerShown: false}}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );
