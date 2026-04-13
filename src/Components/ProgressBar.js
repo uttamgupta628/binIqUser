@@ -20,14 +20,14 @@ const ProgressBar = ({progress, tier}) => {
 const styles = StyleSheet.create({
   container: {
     borderRadius: 8,
-    width: '100%',
+    width: '80%',
     alignSelf: 'center',
   },
   tier: {
     color: '#1A1A4B',
     fontSize: hp(1.5),
-    marginVertical: '15%',
-    textAlign: 'left',
+    marginVertical: '20%',
+    textAlign: 'center',
   },
   progressBackground: {
     height: hp(1),

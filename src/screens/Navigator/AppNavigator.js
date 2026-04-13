@@ -42,6 +42,7 @@ import EditProfileScreen from '../MainScreens/EditProfileScreen';
 import PrivacyPolicy from '../UserProfileScreens/Privacypolicy';
 import AboutUs from '../UserProfileScreens/Aboutus';
 import ImageSearchScreen from '../MainScreens/ImageSearchScreen';
+import StoreMapScreen from '../MainScreens/Storemapscreen';
 
 const AppNavigator = () => {
   const Stack = createStackNavigator();
@@ -240,6 +241,7 @@ const AppNavigator = () => {
           component={PrivacyPolicy}
           options={{headerShown: false}}
         />
+        <Stack.Screen name="StoreMapScreen" component={StoreMapScreen} />
         <Stack.Screen
           name="AboutUs"
           component={AboutUs}

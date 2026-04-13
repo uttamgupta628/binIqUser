@@ -1,4 +1,4 @@
-package com.biniq
+package com.biniquser
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

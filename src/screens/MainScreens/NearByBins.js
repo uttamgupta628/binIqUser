@@ -129,9 +129,9 @@ const NearByBins = () => {
               </TouchableOpacity>
             )}
           </View>
-          <TouchableOpacity style={styles.menuButton}>
+          {/* <TouchableOpacity style={styles.menuButton}>
             <FilterIcon size={10} />
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </View>
 
         {/* Location info */}

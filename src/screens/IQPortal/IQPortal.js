@@ -10,8 +10,7 @@ import {
   View,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
-  FlatList,
+  Linking,
 } from 'react-native';
 import React, { useState, useCallback } from 'react';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -24,13 +23,11 @@ const hp = (percentage) => (height * percentage) / 100;
 
 const IQPortal = () => {
   const navigation = useNavigation();
-  
-  // State
-  const [loading, setLoading] = useState(false);
-  const [courses, setCourses] = useState([]);
+
+  const [loading, setLoading]   = useState(false);
+  const [courses, setCourses]   = useState([]);
   const [services, setServices] = useState([]);
 
-  // Fetch data when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       fetchCoursesAndServices();
@@ -40,119 +37,107 @@ const IQPortal = () => {
   const fetchCoursesAndServices = async () => {
     try {
       setLoading(true);
-      
-      // Mock courses data (replace with actual API call when available)
+
       const mockCourses = [
         {
           id: '1',
-          _id: '1',
-          title: 'Start a Bin Store',
-          description: 'How to start a bin store Intro to reselling video',
+          title: 'How to Start a Bin Store',
+          description: 'Intro to reselling — full video with PDF guide',
           image: require('../../../assets/reseller_training.png'),
           duration: 'Full Video',
           resources: 'With PDF',
           price: 'Free',
           category: 'Training',
+          url: 'https://www.biniq.net/products/how-to-start-a-bin-store',
         },
         {
           id: '2',
-          _id: '2',
           title: 'Free Reseller Training',
-          description: 'Resellers BluePrint Method',
+          description: 'Start your reselling journey for free',
           image: require('../../../assets/reseller_training.png'),
           duration: '1 Video',
           resources: 'With PDF',
           price: 'Free',
           category: 'Training',
+          url: 'https://www.biniq.net/products/free-bin-reselling-training?variant=50225215701308',
         },
         {
           id: '3',
-          _id: '3',
-          title: 'Reseller BluePrint',
-          description: 'How to Buy Pallets',
+          title: 'MASTERMIND BLUEPRINT',
+          description: 'How to Make Money Reselling Fast',
           image: require('../../../assets/reseller_training.png'),
-          duration: '3 Video',
+          duration: '3 Videos',
           resources: 'With PDF',
           price: '$49.99',
           category: 'Advanced',
+          url: 'https://www.biniq.net/products/bin-reseller-blueprint',
         },
         {
           id: '4',
-          _id: '4',
-          title: 'Buy Pallets',
-          description: 'Truckloads Directly',
+          title: 'How to Buy Pallets & Truckloads',
+          description: 'Buy pallets and truckloads directly',
           image: require('../../../assets/reseller_training.png'),
           duration: 'Full Training',
           resources: 'With PDF',
           price: '$99.99',
           category: 'Advanced',
+          url: 'https://www.biniq.net/products/how-to-buy-pallets-and-truckloads-directly',
         },
       ];
 
       const mockServices = [
         {
           id: '1',
-          title: 'Bookkeeping/Taxes/Accounting Help',
+          title: 'Bookkeeping / Taxes / Accounting Help',
           price: 'Price Per Request',
-          description: 'Professional accounting services tailored to your needs',
+          url: 'https://www.biniq.net/products/bookkeeping-taxes-accounting-help?variant=52941971915068',
         },
-        {
-          id: '2',
-          title: 'Consulting',
-          price: '$500 Per Session',
-          description: 'One-on-one consulting sessions with experts',
-        },
+        // {
+        //   id: '2',
+        //   title: 'Consulting',
+        //   price: '$500 Per Session',
+        //   url: 'https://www.biniq.net/collections/training-and-resources',
+        // },
         {
           id: '3',
-          title: '101 30 Day Mentorship Training Plan',
+          title: '101 30-Day Mentorship Training Plan',
           price: '$2,000.00',
-          description: 'Comprehensive 30-day mentorship program',
+          url: 'https://www.biniq.net/products/101-30-day-reselling-mentorship',
         },
         {
           id: '4',
-          title: 'Direct Contact Holder Portal',
+          title: 'Direct Contract Holder Portal',
           price: '$250.00',
-          description: 'Access to direct contact holder portal',
+          url: 'https://www.biniq.net/products/direct-contract-holder-portal',
         },
       ];
 
       setCourses(mockCourses);
       setServices(mockServices);
-      
-      // TODO: Replace with actual API call when available
-      // const response = await coursesAPI.getAll();
-      // setCourses(response.courses);
-      // setServices(response.services);
-      
     } catch (err) {
       console.error('Error fetching courses:', err);
-      // Don't show alert, just use empty state
     } finally {
       setLoading(false);
     }
   };
 
   const handleCoursePress = (course) => {
-    navigation.navigate('CourseDetails', { course });
+    if (course.url) {
+      Linking.openURL(course.url);
+    }
   };
 
   const handleServicePress = (service) => {
-    Alert.alert(
-      service.title,
-      `${service.description}\n\nPrice: ${service.price}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Contact Us', 
-          onPress: () => {
-            // Navigate to contact or open email
-            Alert.alert('Contact', 'Feature coming soon!');
-          }
-        },
-      ]
-    );
+    if (service.url) {
+      Linking.openURL(service.url);
+    }
   };
 
+  const handleViewAll = () => {
+    Linking.openURL('https://www.biniq.net/collections/training-and-resources');
+  };
+
+  // ── Course Card ──────────────────────────────────────────────
   const CourseCard = ({ course, index }) => {
     const isFirstRow = index < 2;
     const cardHeight = isFirstRow ? hp(30) : hp(25);
@@ -161,18 +146,19 @@ const IQPortal = () => {
       <TouchableOpacity
         style={[styles.courseCard, { height: cardHeight }]}
         onPress={() => handleCoursePress(course)}
-        activeOpacity={0.7}
-      >
+        activeOpacity={0.7}>
         <Image
           source={
-            course.image 
-              ? (typeof course.image === 'string' ? { uri: course.image } : course.image)
+            course.image
+              ? typeof course.image === 'string'
+                ? { uri: course.image }
+                : course.image
               : require('../../../assets/reseller_training.png')
           }
           style={styles.courseImage}
         />
         <View style={styles.courseContent}>
-          <Text style={styles.courseTitle} numberOfLines={1}>
+          <Text style={styles.courseTitle} numberOfLines={2}>
             {course.title}
           </Text>
           <Text style={styles.courseDescription} numberOfLines={2}>
@@ -184,23 +170,27 @@ const IQPortal = () => {
           {course.price !== 'Free' && (
             <Text style={styles.coursePrice}>{course.price}</Text>
           )}
+          {course.price === 'Free' && (
+            <Text style={styles.courseFree}>Free</Text>
+          )}
         </View>
       </TouchableOpacity>
     );
   };
 
+  // ── Service Card ─────────────────────────────────────────────
   const ServiceCard = ({ service }) => (
     <TouchableOpacity
       style={styles.serviceCard}
       onPress={() => handleServicePress(service)}
-      activeOpacity={0.7}
-    >
+      activeOpacity={0.7}>
       <View style={{ flex: 1 }}>
         <Text style={styles.serviceTitle} numberOfLines={2}>
-          {service.title}: {service.price}
+          {service.title}
         </Text>
+        <Text style={styles.servicePrice}>{service.price}</Text>
       </View>
-      <MaterialIcons name="arrow-forward-ios" size={20} color="#524B6B" />
+      <MaterialIcons name="arrow-forward-ios" size={18} color="#524B6B" />
     </TouchableOpacity>
   );
 
@@ -213,20 +203,16 @@ const IQPortal = () => {
 
   return (
     <View style={styles.container}>
-      <StatusBar translucent={true} backgroundColor={'transparent'} />
+      <StatusBar translucent backgroundColor="transparent" />
       <ImageBackground
         source={require('../../../assets/vector_1.png')}
-        style={styles.vector}
-      >
-        {/* Header */}
+        style={styles.vector}>
+
+        {/* ── Header ── */}
         <View style={styles.header}>
           <View style={styles.headerChild}>
             <Pressable onPress={() => navigation.goBack()}>
-              <MaterialIcons
-                name="arrow-back-ios"
-                color={'#0D0D26'}
-                size={25}
-              />
+              <MaterialIcons name="arrow-back-ios" color="#0D0D26" size={25} />
             </Pressable>
             <Text style={styles.headerText}>Reseller IQ Portal</Text>
           </View>
@@ -238,14 +224,28 @@ const IQPortal = () => {
             <Text style={styles.loadingText}>Loading courses...</Text>
           </View>
         ) : (
-          <ScrollView 
-            style={styles.scrollView}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Courses Section */}
+          <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+
+            {/* ── View All Banner ── */}
+            <TouchableOpacity style={styles.viewAllBanner} onPress={handleViewAll} activeOpacity={0.85}>
+              <View>
+                <Text style={styles.viewAllBannerTitle}>Browse All Training</Text>
+                <Text style={styles.viewAllBannerSub}>View full collection of courses & resources</Text>
+              </View>
+              <View style={styles.viewAllBannerBtn}>
+                <Text style={styles.viewAllBannerBtnText}>View All</Text>
+                <MaterialIcons name="arrow-forward-ios" size={14} color="#fff" />
+              </View>
+            </TouchableOpacity>
+
+            {/* ── Courses Section ── */}
             {courses.length > 0 ? (
               <>
-                {/* First Row - 2 Courses */}
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.sectionTitle}>TRAINING COURSES</Text>
+                </View>
+
+                {/* Row 1 */}
                 <View style={styles.coursesContainer}>
                   <View style={styles.coursesRow}>
                     {courses.slice(0, 2).map((course, index) => (
@@ -254,7 +254,7 @@ const IQPortal = () => {
                   </View>
                 </View>
 
-                {/* Second Row - 2 Courses */}
+                {/* Row 2 */}
                 <View style={styles.coursesContainer}>
                   <View style={styles.coursesRow}>
                     {courses.slice(2, 4).map((course, index) => (
@@ -263,7 +263,7 @@ const IQPortal = () => {
                   </View>
                 </View>
 
-                {/* Additional Courses if any */}
+                {/* Extra rows if any */}
                 {courses.length > 4 && (
                   <View style={styles.coursesContainer}>
                     <View style={styles.coursesRow}>
@@ -278,14 +278,14 @@ const IQPortal = () => {
               <EmptyState message="No courses available" />
             )}
 
-            {/* Services Section */}
+            {/* ── Services Section ── */}
             <View style={styles.servicesContainer}>
-              <View style={styles.sectionHeader}>
+              <View style={styles.sectionHeaderRow}>
                 <Text style={styles.sectionTitle}>ADDITIONAL SERVICES</Text>
               </View>
 
               {services.length > 0 ? (
-                services.map((service) => (
+                services.map(service => (
                   <ServiceCard key={service.id} service={service} />
                 ))
               ) : (
@@ -324,6 +324,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: -1,
   },
+
+  // ── Header ──
   header: {
     width: wp(100),
     height: hp(7),
@@ -347,7 +349,64 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
   },
-  // Loading State
+
+  // ── View All Banner ──
+  viewAllBanner: {
+    marginHorizontal: '5%',
+    marginTop: hp(2),
+    marginBottom: hp(1),
+    backgroundColor: '#130160',
+    borderRadius: 10,
+    paddingHorizontal: wp(5),
+    paddingVertical: hp(2),
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+  viewAllBannerTitle: {
+    fontFamily: 'Nunito-Bold',
+    color: '#fff',
+    fontSize: hp(2),
+  },
+  viewAllBannerSub: {
+    fontFamily: 'Nunito-Regular',
+    color: '#ffffff99',
+    fontSize: hp(1.4),
+    marginTop: 2,
+  },
+  viewAllBannerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#14BA9C',
+    borderRadius: 6,
+    paddingHorizontal: wp(3),
+    paddingVertical: hp(0.8),
+    gap: 4,
+  },
+  viewAllBannerBtnText: {
+    fontFamily: 'Nunito-Bold',
+    color: '#fff',
+    fontSize: hp(1.6),
+  },
+
+  // ── Section Header ──
+  sectionHeaderRow: {
+    paddingHorizontal: '5%',
+    marginTop: hp(2),
+    marginBottom: hp(1),
+  },
+  sectionTitle: {
+    fontFamily: 'Nunito-Bold',
+    color: '#130160',
+    fontSize: hp(2.3),
+  },
+
+  // ── Loading / Empty ──
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -360,7 +419,6 @@ const styles = StyleSheet.create({
     fontSize: hp(2),
     color: '#666',
   },
-  // Empty State
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -373,9 +431,10 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 15,
   },
-  // Courses Section
+
+  // ── Course Cards ──
   coursesContainer: {
-    marginVertical: '3%',
+    marginVertical: hp(0.8),
     paddingHorizontal: '5%',
   },
   coursesRow: {
@@ -385,7 +444,7 @@ const styles = StyleSheet.create({
   },
   courseCard: {
     width: wp(44),
-    borderRadius: 5,
+    borderRadius: 8,
     borderWidth: 0.5,
     borderColor: '#e6e6e6',
     backgroundColor: '#fff',
@@ -394,62 +453,69 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    overflow: 'hidden',
   },
   courseImage: {
     width: wp(44),
     height: hp(13),
-    borderTopLeftRadius: 5,
-    borderTopRightRadius: 5,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
   },
   courseContent: {
-    margin: '6%',
+    padding: '5%',
+    alignItems: 'center',        // ← centers children horizontally
   },
   courseTitle: {
     fontFamily: 'Nunito-ExtraBold',
     color: '#0049AF',
-    fontSize: hp(1.7),
-    marginBottom: 5,
+    fontSize: hp(1.6),
+    marginBottom: 4,
+    lineHeight: hp(2.1),
+    textAlign: 'center',         // ← centers text
   },
   courseDescription: {
     fontFamily: 'Nunito-SemiBold',
-    color: '#000',
-    fontSize: hp(1.7),
-    marginBottom: 8,
-    lineHeight: hp(2.2),
+    color: '#524B6B',
+    fontSize: hp(1.5),
+    marginBottom: 6,
+    lineHeight: hp(2),
+    textAlign: 'center',         // ← centers text
   },
   courseInfo: {
     fontFamily: 'Nunito-SemiBold',
     color: '#14BA9C',
-    fontSize: hp(1.5),
+    fontSize: hp(1.4),
+    textAlign: 'center',         // ← centers text
   },
   coursePrice: {
     fontFamily: 'Nunito-Bold',
     color: '#130160',
-    fontSize: hp(1.8),
+    fontSize: hp(1.7),
     marginTop: 5,
+    textAlign: 'center',         // ← centers text
   },
-  // Services Section
+  courseFree: {
+    fontFamily: 'Nunito-Bold',
+    color: '#14BA9C',
+    fontSize: hp(1.6),
+    marginTop: 5,
+    textAlign: 'center',         // ← centers text
+  },
+
+  // ── Service Cards ──
   servicesContainer: {
     paddingHorizontal: '5%',
-    marginTop: '5%',
-  },
-  sectionHeader: {
-    marginVertical: '7%',
-  },
-  sectionTitle: {
-    fontFamily: 'Nunito-Bold',
-    color: '#130160',
-    fontSize: hp(2.3),
+    marginTop: hp(1),
   },
   serviceCard: {
     backgroundColor: '#fff',
     width: wp(90),
-    minHeight: hp(6.5),
-    borderRadius: 5,
+    minHeight: hp(7),
+    borderRadius: 8,
     paddingHorizontal: '5%',
-    paddingVertical: '3%',
+    paddingVertical: '3.5%',
     elevation: 3,
-    marginBottom: '4%',
+    marginBottom: hp(1.5),
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -457,11 +523,19 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
+    borderLeftWidth: 3,
+    borderLeftColor: '#130160',
   },
   serviceTitle: {
-    color: '#524B6B',
+    color: '#0D0140',
     fontFamily: 'Nunito-SemiBold',
-    fontSize: hp(1.9),
-    lineHeight: hp(2.5),
+    fontSize: hp(1.8),
+    lineHeight: hp(2.4),
+    marginBottom: 3,
+  },
+  servicePrice: {
+    color: '#14BA9C',
+    fontFamily: 'Nunito-Bold',
+    fontSize: hp(1.6),
   },
 });
